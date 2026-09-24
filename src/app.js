@@ -57,6 +57,7 @@ app.use(
   helmet({
     contentSecurityPolicy: false,
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   }),
 )
 
