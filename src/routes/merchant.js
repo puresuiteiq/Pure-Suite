@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { requireAuth } from '../middleware/auth.js'
 import {
   getMyProfile,
+  resolveMapLink,
   updateMyProfile,
   changeMyPassword,
 } from '../controllers/merchantProfileController.js'
@@ -47,6 +48,7 @@ router.use(requireAuth)
 // Profile
 router.get('/profile', getMyProfile)
 router.patch('/profile', updateMyProfile)
+router.post('/profile/map-link/resolve', resolveMapLink)
 router.post('/change-password', changeMyPassword)
 
 // Menu

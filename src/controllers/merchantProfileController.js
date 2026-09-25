@@ -5,6 +5,7 @@ import { mapProfile, normalizeStorefrontTheme } from '../utils/mappers.js'
 import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
 import { normalizeSplashTagline } from '../utils/splash.js'
 import { mySplashMediaUrl, splashFields } from '../db/splash.js'
+import { expandShortMapLink, parseMapCoordinates } from '../utils/mapLinks.js'
 
 // Read every column and let mapProfile pick + default what it needs. Naming
 // columns explicitly meant a new column (e.g. reviews_enabled) crashed this
@@ -192,6 +193,32 @@ export async function updateMyProfile(req, res, next) {
       [req.merchantId],
     )
     res.json(await profileResponse(req.merchantId, rows[0]))
+  } catch (err) {
+    next(err)
+  }
+}
+
+// POST /api/merchant/profile/map-link/resolve  { url }
+export async function resolveMapLink(req, res, next) {
+  try {
+    const raw = String(req.body?.url ?? '').trim()
+    if (!raw) {
+      return res.status(400).json({ status: 'error', error: 'Map link is required' })
+    }
+
+    const direct = parseMapCoordinates(raw)
+    if (direct) return res.json({ ...direct, resolvedUrl: raw })
+
+    const expanded = await expandShortMapLink(raw)
+    const expandedCoords = expanded ? parseMapCoordinates(expanded) : null
+    if (expandedCoords) {
+      return res.json({ ...expandedCoords, resolvedUrl: expanded })
+    }
+
+    return res.status(422).json({
+      status: 'error',
+      error: 'Could not read coordinates from this map link',
+    })
   } catch (err) {
     next(err)
   }

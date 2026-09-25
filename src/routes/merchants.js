@@ -2,6 +2,7 @@ import { Router } from 'express'
 import {
   listMerchants,
   getMerchant,
+  getMerchantProductImage,
   createMerchant,
   updateMerchant,
   deleteMerchant,
@@ -14,6 +15,7 @@ import {
 const router = Router()
 
 router.get('/', listMerchants)
+router.get('/:id/products/:productId/image/:index', getMerchantProductImage)
 router.get('/:id', getMerchant)
 router.post('/', createMerchant)
 router.post('/:id/reset-password', resetMerchantPassword)

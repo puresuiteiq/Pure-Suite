@@ -7,6 +7,7 @@ import { setAuthCookie, MERCHANT_COOKIE } from '../utils/cookies.js'
 import { parseVariants, parseImages } from '../utils/mappers.js'
 import { validateSlug, slugForMerchant } from '../utils/slug.js'
 import { missingColumnMessage } from '../utils/dbErrors.js'
+import { imageVersion, sendImage } from '../utils/imageResponse.js'
 import { suspendExpiredSubscriptions, enforceMerchantSubscription } from '../services/subscriptions.js'
 
 /** Human-typeable temporary password (URL-safe, ~12 chars). */
@@ -47,7 +48,32 @@ function rowToMerchant(row) {
   }
 }
 
-function rowToDetailProduct(product) {
+const adminProductImageUrl = (merchantId) => (productId, index, updatedAt) =>
+  `/api/merchants/${encodeURIComponent(merchantId)}/products/${productId}/image/${index}` +
+  `?v=${imageVersion(updatedAt)}`
+
+let detailProductColumns = null
+async function listDetailProductColumns() {
+  if (detailProductColumns === null) {
+    const [rows] = await pool.query(
+      `SELECT column_name AS name FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'products'`,
+    )
+    const names = rows.map((row) => row.name)
+    const usable = names.filter((name) => name !== 'images' && name !== 'image')
+    const computed = [
+      names.includes('image') ? 'CHAR_LENGTH(p.`image`) > 0 AS has_image' : '0 AS has_image',
+      names.includes('images')
+        ? 'COALESCE(JSON_LENGTH(p.`images`), 0) AS image_count'
+        : '0 AS image_count',
+    ]
+    detailProductColumns = [...usable.map((name) => `p.\`${name}\``), ...computed].join(', ')
+  }
+  return detailProductColumns
+}
+
+function rowToDetailProduct(product, { imageUrl = null } = {}) {
+  const hasImage = Boolean(product.has_image) || Number(product.image_count) > 0
   return {
     id: product.id,
     name: product.name,
@@ -59,12 +85,13 @@ function rowToDetailProduct(product) {
     variants: parseVariants(product.variants),
     brand: product.brand ?? null,
     stock: product.stock == null ? null : Number(product.stock),
-    images: parseImages(product.images),
-    image: product.image ?? null,
+    image: imageUrl && hasImage
+      ? imageUrl(product.id, 0, product.updated_at)
+      : (product.image ?? parseImages(product.images)[0] ?? null),
   }
 }
 
-function groupDetailProducts(products) {
+function groupDetailProducts(products, options = {}) {
   const categories = []
   const byId = new Map()
   for (const product of products) {
@@ -78,7 +105,7 @@ function groupDetailProducts(products) {
       byId.set(categoryId, category)
       categories.push(category)
     }
-    byId.get(categoryId).items.push(rowToDetailProduct(product))
+    byId.get(categoryId).items.push(rowToDetailProduct(product, options))
   }
   return categories
 }
@@ -200,6 +227,7 @@ export async function getMerchant(req, res, next) {
     let categories
     let menuPage = null
     if (wantsMenuPage) {
+      const productColumns = await listDetailProductColumns()
       const [[categoryCount], [productCount], [products]] = await Promise.all([
         pool.query('SELECT COUNT(*) AS total FROM categories WHERE merchant_id = ?', [
           merchant.id,
@@ -208,7 +236,7 @@ export async function getMerchant(req, res, next) {
           merchant.id,
         ]),
         pool.query(
-          `SELECT p.*, c.id AS category_id, c.name AS category_name, c.position AS category_position
+          `SELECT ${productColumns}, c.name AS category_name, c.position AS category_position
              FROM products p
              JOIN categories c ON c.id = p.category_id
             WHERE p.merchant_id = ?
@@ -218,7 +246,7 @@ export async function getMerchant(req, res, next) {
         ),
       ])
       const total = Number(productCount[0]?.total ?? 0)
-      categories = groupDetailProducts(products)
+      categories = groupDetailProducts(products, { imageUrl: adminProductImageUrl(merchant.id) })
       menuPage = {
         total,
         categoryTotal: Number(categoryCount[0]?.total ?? 0),
@@ -259,6 +287,30 @@ export async function getMerchant(req, res, next) {
       categories,
       ...(menuPage ? { menuPage } : {}),
     })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// GET /api/merchants/:id/products/:productId/image/:index
+export async function getMerchantProductImage(req, res, next) {
+  try {
+    const [merchantRows] = await pool.query('SELECT id FROM merchants WHERE id = ?', [req.params.id])
+    if (!merchantRows.length) {
+      return res.status(404).json({ status: 'error', error: 'Image not found' })
+    }
+    const [rows] = await pool.query(
+      'SELECT image, images FROM products WHERE id = ? AND merchant_id = ?',
+      [req.params.productId, req.params.id],
+    )
+    if (!rows.length) {
+      return res.status(404).json({ status: 'error', error: 'Image not found' })
+    }
+
+    const index = Number(req.params.index) || 0
+    const gallery = parseImages(rows[0].images)
+    const stored = gallery[index] ?? (index === 0 ? rows[0].image : null)
+    return sendImage(res, stored)
   } catch (err) {
     next(err)
   }
