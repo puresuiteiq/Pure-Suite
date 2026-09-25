@@ -8,6 +8,7 @@ import { linkTargetSets, mapBanner } from '../utils/banners.js'
 import { mapSplash } from '../utils/splash.js'
 import { publicSplashMediaUrl, readSplashMeta, sendSplashMedia } from '../db/splash.js'
 import { enforceMerchantSubscription } from '../services/subscriptions.js'
+import { platformName } from '../config/platform.js'
 import {
   groupMenu,
   mapProfile,
@@ -63,7 +64,7 @@ async function merchantsHaveSlug() {
  *
  * Returns the merchant row, or null when nothing matches.
  */
-async function resolveMerchant(param) {
+export async function resolveMerchant(param) {
   const raw = String(param ?? '').trim()
   if (!raw) return null
   // A bare number is always an id — slugify() guarantees a slug is never
@@ -200,6 +201,26 @@ export async function getMerchantLogo(req, res, next) {
   }
 }
 
+// GET /api/public/brand-logo
+/**
+ * The platform logo the Super Admin uploaded, as an image — for share cards,
+ * which need a real image URL, not the data URL the config carries.
+ *
+ * Cached for a year only when the URL is versioned (?v=, which pageController
+ * derives from the logo itself); index.html's build-time tag has no version,
+ * so that URL is kept for an hour.
+ */
+export async function getBrandLogo(req, res, next) {
+  try {
+    const [admins] = await pool.query('SELECT public_brand_logo FROM admins ORDER BY id ASC LIMIT 1')
+    return sendImage(res, admins[0]?.public_brand_logo, {
+      cacheControl: req.query.v ? null : 'public, max-age=3600',
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
 // GET /api/public/merchants/:merchantId/banners/:bannerId/image
 export async function getBannerImage(req, res, next) {
   try {
@@ -274,6 +295,9 @@ function mapPlatformBranding(row = {}) {
     nameColor: row.public_brand_name_color ?? null,
     // Behind the "designed by" credit on storefront welcome screens.
     whatsapp: row.public_contact_whatsapp ?? null,
+    // The platform's own name for that credit (PLATFORM_NAME) — not `name`,
+    // which is a footer label and may read "POWERED BY".
+    platformName: platformName(),
   }
 }
 

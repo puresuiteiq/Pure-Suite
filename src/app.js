@@ -24,6 +24,7 @@ import { detectLanguage } from './middleware/language.js'
 import { issueCsrfToken, csrfProtection } from './middleware/csrf.js'
 import { publicWriteLimiter, trustProxyHops } from './middleware/rateLimit.js'
 import { describeDbError } from './utils/dbErrors.js'
+import { renderAppPage } from './controllers/pageController.js'
 import { ERROR_CODES, errorBody } from './utils/errorCodes.js'
 
 const app = express()
@@ -128,7 +129,14 @@ app.use('/api/admin', requireAdmin, adminProfileRouter)
 // since a separate frontend domain can't receive them. Skipped when there's
 // no build present (plain `npm run dev`, or a split VPS+Nginx deploy where
 // Nginx serves the frontend instead — see saas_project's own dist output).
-const frontendDist = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../saas_project/dist')
+//
+// FRONTEND_DIST points at a build that lives elsewhere — a VPS whose Nginx
+// serves a copied dist (e.g. /var/www/<site>/dist) and forwards only /r/*
+// pages here for their link-preview tags. It must be the very build Nginx
+// serves, or the page would name asset files Nginx doesn't have.
+const frontendDist = process.env.FRONTEND_DIST
+  ? path.resolve(process.env.FRONTEND_DIST)
+  : path.join(path.dirname(fileURLToPath(import.meta.url)), '../../saas_project/dist')
 if (fs.existsSync(path.join(frontendDist, 'index.html'))) {
   // Vite fingerprints every asset filename, so a given URL's bytes can never
   // change — they can be cached for a year and a repeat visit downloads no
@@ -154,11 +162,11 @@ if (fs.existsSync(path.join(frontendDist, 'index.html'))) {
   // files — fall back to index.html for any non-API GET so the SPA's own
   // router can take over. Placed after express.static (real files still win)
   // and before the JSON 404 below (which now only ever fires for /api/*).
-  app.get(/^(?!\/api).*/, (req, res) => {
-    // Always revalidated — see the static block above.
-    res.setHeader('Cache-Control', 'no-cache')
-    res.sendFile(path.join(frontendDist, 'index.html'))
-  })
+  //
+  // Each page gets its own link-preview tags (a storefront previews as that
+  // store, everything else as the platform) — see pageController. Always
+  // revalidated, like the static block above.
+  app.get(/^(?!\/api).*/, renderAppPage(path.join(frontendDist, 'index.html')))
 }
 
 // 404 fallback.

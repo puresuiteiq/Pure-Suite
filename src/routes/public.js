@@ -6,6 +6,7 @@ import {
   getProductImage,
   getMerchantLogo,
   getBannerImage,
+  getBrandLogo,
   getSplashMedia,
   createReview,
   createOrder,
@@ -14,6 +15,7 @@ import {
 const router = Router()
 
 router.get('/config', getPublicConfig)
+router.get('/brand-logo', getBrandLogo)
 router.get('/merchants/:merchantId', getPublicRestaurant)
 router.get('/merchants/:merchantId/products/:productId/images', getProductImages)
 // Image bytes, served individually so the browser can lazy-load and cache them.

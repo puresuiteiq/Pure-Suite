@@ -35,7 +35,7 @@ export function decodeDataUrl(value) {
  * imageVersion(). `scope: 'private'` is for images only their own merchant may
  * fetch, so a shared proxy never keeps a copy.
  */
-export function sendImage(res, stored, { scope = 'public' } = {}) {
+export function sendImage(res, stored, { scope = 'public', cacheControl = null } = {}) {
   const decoded = decodeDataUrl(stored)
   if (!decoded) {
     // A CDN/remote URL was stored rather than a data URL: hand the client
@@ -46,7 +46,9 @@ export function sendImage(res, stored, { scope = 'public' } = {}) {
     return res.status(404).json({ status: 'error', error: 'Image not found' })
   }
   res.set('Content-Type', decoded.contentType)
-  res.set('Cache-Control', `${scope}, max-age=31536000, immutable`)
+  // `cacheControl` is for a URL that is NOT versioned (the platform logo in
+  // index.html's share-card tags), which must not be pinned for a year.
+  res.set('Cache-Control', cacheControl || `${scope}, max-age=31536000, immutable`)
   // These URLs get opened directly, not only through <img>. For a stored SVG
   // that means a document on the app's own domain, where its script would run
   // as the app. A sandboxed, script-free policy stops that for every image
