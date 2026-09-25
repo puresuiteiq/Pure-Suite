@@ -52,13 +52,25 @@ export async function listMerchants(req, res, next) {
     const wantsPage = req.query.limit !== undefined || req.query.offset !== undefined
     const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 10))
     const offset = Math.max(0, Number(req.query.offset) || 0)
+    const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
+    const where = []
+    const values = []
+    if (q) {
+      where.push(
+        `(business_name LIKE ? OR owner_name LIKE ? OR email LIKE ? OR phone LIKE ?
+          OR plan LIKE ? OR status LIKE ?)`,
+      )
+      const like = `%${q}%`
+      values.push(like, like, like, like, like, like)
+    }
+    const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : ''
 
     if (wantsPage) {
       const [[countRow], [rows]] = await Promise.all([
-        pool.query('SELECT COUNT(*) AS total FROM merchants'),
+        pool.query(`SELECT COUNT(*) AS total FROM merchants${whereSql}`, values),
         pool.query(
-          'SELECT * FROM merchants ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
-          [limit, offset],
+          `SELECT * FROM merchants${whereSql} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+          [...values, limit, offset],
         ),
       ])
       const total = Number(countRow[0]?.total ?? 0)
@@ -72,7 +84,8 @@ export async function listMerchants(req, res, next) {
     }
 
     const [rows] = await pool.query(
-      'SELECT * FROM merchants ORDER BY created_at DESC, id DESC',
+      `SELECT * FROM merchants${whereSql} ORDER BY created_at DESC, id DESC`,
+      values,
     )
     res.json(rows.map(rowToMerchant))
   } catch (err) {

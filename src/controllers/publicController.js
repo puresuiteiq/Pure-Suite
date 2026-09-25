@@ -27,8 +27,16 @@ import {
  * Unauthenticated on purpose: it holds nothing the storefront doesn't already
  * expose by being reachable at that address.
  */
-export function getPublicConfig(req, res) {
-  res.json({ appUrl: appUrl() })
+export async function getPublicConfig(req, res) {
+  let platformBranding = mapPlatformBranding()
+  try {
+    const [admins] = await pool.query('SELECT * FROM admins ORDER BY id ASC LIMIT 1')
+    platformBranding = mapPlatformBranding(admins[0])
+  } catch {
+    // The app URL is still useful when the database is temporarily unreachable;
+    // storefront reads will report their own database problem separately.
+  }
+  res.json({ appUrl: appUrl(), platformBranding })
 }
 
 // Cached per-process: a database that has not run db:add-slug has no slug
