@@ -11,6 +11,8 @@ import {
   createCategory,
   updateCategory,
   deleteCategory,
+  getItem,
+  getItemImage,
   createItem,
   updateItem,
   deleteItem,
@@ -56,6 +58,8 @@ router.get('/menu', getMyMenu)
 router.post('/menu/categories', createCategory)
 router.patch('/menu/categories/:id', updateCategory)
 router.delete('/menu/categories/:id', deleteCategory)
+router.get('/menu/items/:id', getItem)
+router.get('/menu/items/:id/image/:index', getItemImage)
 router.post('/menu/items', createItem)
 router.patch('/menu/items/:id', updateItem)
 router.delete('/menu/items/:id', deleteItem)

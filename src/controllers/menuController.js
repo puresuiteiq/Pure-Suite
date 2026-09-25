@@ -1,5 +1,5 @@
 import pool from '../config/db.js'
-import { groupMenu, mapMenuItem, normalizeI18n } from '../utils/mappers.js'
+import { groupMenu, mapMenuItem, normalizeI18n, parseImages } from '../utils/mappers.js'
 import {
   normalizeAvailability,
   normalizeAgeRange,
@@ -11,6 +11,7 @@ import {
   normalizeVariants,
   validateItem,
 } from '../utils/menuNormalize.js'
+import { imageVersion, sendImage } from '../utils/imageResponse.js'
 
 /**
  * All handlers derive the merchant from `req.merchantId` (set by requireAuth)
@@ -100,31 +101,99 @@ async function hasAgeRangeColumn() {
   return ageRangeColumn
 }
 
+const merchantProductImageUrl = (productId, index, updatedAt) =>
+  `/api/merchant/menu/items/${productId}/image/${index}?v=${imageVersion(updatedAt)}`
+
+let menuListColumns
+async function listMenuProductColumns() {
+  if (menuListColumns === undefined) {
+    const [rows] = await pool.query(
+      `SELECT column_name AS name FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'products'`,
+    )
+    const names = rows.map((row) => row.name)
+    const usable = names.filter((name) => name !== 'images' && name !== 'image')
+    const computed = [
+      names.includes('image') ? 'CHAR_LENGTH(p.`image`) > 0 AS has_image' : '0 AS has_image',
+      names.includes('images')
+        ? 'COALESCE(JSON_LENGTH(p.`images`), 0) AS image_count'
+        : '0 AS image_count',
+    ]
+    menuListColumns = [...usable.map((name) => `p.\`${name}\``), ...computed].join(', ')
+  }
+  return menuListColumns
+}
+
+async function getMenuPage(merchantId, { limit, offset }) {
+  const [categoryRows] = await pool.query(
+    `SELECT c.*, COUNT(p.id) AS product_count
+       FROM categories c
+       LEFT JOIN products p ON p.category_id = c.id AND p.merchant_id = c.merchant_id
+      WHERE c.merchant_id = ?
+      GROUP BY c.id
+      ORDER BY c.position, c.id`,
+    [merchantId],
+  )
+  const total = categoryRows.reduce((sum, category) => sum + Number(category.product_count ?? 0), 0)
+  const products = []
+  let remainingOffset = offset
+  let remainingLimit = limit
+
+  for (const category of categoryRows) {
+    const productCount = Number(category.product_count ?? 0)
+    if (productCount === 0) continue
+    if (remainingOffset >= productCount) {
+      remainingOffset -= productCount
+      continue
+    }
+    if (remainingLimit <= 0) break
+
+    const take = Math.min(remainingLimit, productCount - remainingOffset)
+    const [rows] = await pool.query(
+      `SELECT ${await listMenuProductColumns()} FROM products p
+       WHERE p.merchant_id = ? AND p.category_id = ?
+       ORDER BY p.position, p.id
+       LIMIT ? OFFSET ?`,
+      [merchantId, category.id, take, remainingOffset],
+    )
+    products.push(...rows)
+    remainingLimit -= rows.length
+    remainingOffset = 0
+  }
+
+  return {
+    categories: groupMenu(categoryRows, products, undefined, {
+      imageUrl: merchantProductImageUrl,
+    }),
+    page: {
+      total,
+      limit,
+      offset,
+      hasMore: offset + limit < total,
+    },
+  }
+}
+
 // GET /api/merchant/menu
 export async function getMyMenu(req, res, next) {
   try {
     const wantsPage = req.query.limit !== undefined || req.query.offset !== undefined
     const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 10))
     const offset = Math.max(0, Number(req.query.offset) || 0)
+    if (wantsPage) {
+      return res.json(await getMenuPage(req.merchantId, { limit, offset }))
+    }
+
     const [categories] = await pool.query(
       'SELECT * FROM categories WHERE merchant_id = ? ORDER BY position, id',
       [req.merchantId],
     )
-    const [productsResult, countResult] = await Promise.all([
-      pool.query(
-        `SELECT * FROM products
-          WHERE merchant_id = ?
-          ORDER BY category_id, position, id
-          ${wantsPage ? 'LIMIT ? OFFSET ?' : ''}`,
-        wantsPage ? [req.merchantId, limit, offset] : [req.merchantId],
-      ),
-      wantsPage
-        ? pool.query('SELECT COUNT(*) AS total FROM products WHERE merchant_id = ?', [
-            req.merchantId,
-          ])
-        : Promise.resolve([[{ total: null }]]),
-    ])
-    const products = productsResult[0]
+    const [products] = await pool.query(
+      `SELECT * FROM products
+        WHERE merchant_id = ?
+        ORDER BY category_id, position, id`,
+      [req.merchantId],
+    )
     // Deliberately NO req.lang here.
     //
     // mapMenuItem resolves `name` through pickI18n, so passing the caller's
@@ -138,18 +207,42 @@ export async function getMyMenu(req, res, next) {
     // storefront reads resolve translations. The per-language values still
     // travel on nameI18n / descriptionI18n for the editor to populate.
     const menu = groupMenu(categories, products)
-    if (!wantsPage) return res.json(menu)
+    res.json(menu)
+  } catch (err) {
+    next(err)
+  }
+}
 
-    const total = Number(countResult[0][0]?.total ?? 0)
-    res.json({
-      categories: menu,
-      page: {
-        total,
-        limit,
-        offset,
-        hasMore: offset + products.length < total,
-      },
-    })
+// GET /api/merchant/menu/items/:id
+export async function getItem(req, res, next) {
+  try {
+    const [rows] = await pool.query(
+      'SELECT * FROM products WHERE id = ? AND merchant_id = ?',
+      [req.params.id, req.merchantId],
+    )
+    if (!rows.length) {
+      return res.status(404).json({ status: 'error', error: 'Item not found' })
+    }
+    res.json(mapMenuItem(rows[0]))
+  } catch (err) {
+    next(err)
+  }
+}
+
+// GET /api/merchant/menu/items/:id/image/:index
+export async function getItemImage(req, res, next) {
+  try {
+    const [rows] = await pool.query(
+      'SELECT image, images FROM products WHERE id = ? AND merchant_id = ?',
+      [req.params.id, req.merchantId],
+    )
+    if (!rows.length) {
+      return res.status(404).json({ status: 'error', error: 'Image not found' })
+    }
+    const index = Number(req.params.index) || 0
+    const gallery = parseImages(rows[0].images)
+    const stored = gallery[index] ?? (index === 0 ? rows[0].image : null)
+    return sendImage(res, stored)
   } catch (err) {
     next(err)
   }

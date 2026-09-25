@@ -276,9 +276,78 @@ async function listStorefrontBanners(merchantId, merchantParam, categories, prod
      WHERE merchant_id = ? AND is_active = 1 ORDER BY position, id`,
     [merchantId],
   )
-  const linkTargets = linkTargetSets(categories, products)
+  let linkCategories = categories
+  let linkProducts = products
+  if (!linkCategories.length) {
+    const [loadedCategories] = await pool.query(
+      'SELECT id FROM categories WHERE merchant_id = ?',
+      [merchantId],
+    )
+    linkCategories = loadedCategories
+  }
+  if (!linkProducts.length) {
+    const [loadedProducts] = await pool.query(
+      'SELECT id, category_id FROM products WHERE merchant_id = ?',
+      [merchantId],
+    )
+    linkProducts = loadedProducts
+  }
+  const linkTargets = linkTargetSets(linkCategories, linkProducts)
   const imageUrl = bannerImageUrl(merchantParam)
   return rows.map((row) => mapBanner(row, { imageUrl, linkTargets }))
+}
+
+async function getPublicMenuPage(merchantId, merchantParam, lang, { limit, offset }) {
+  const [categoryRows] = await pool.query(
+    `SELECT c.*, COUNT(p.id) AS product_count
+       FROM categories c
+       LEFT JOIN products p ON p.category_id = c.id AND p.merchant_id = c.merchant_id
+      WHERE c.merchant_id = ?
+      GROUP BY c.id
+      ORDER BY c.position, c.id`,
+    [merchantId],
+  )
+  const total = categoryRows.reduce((sum, category) => sum + Number(category.product_count ?? 0), 0)
+  const products = []
+  let remainingOffset = offset
+  let remainingLimit = limit
+
+  for (const category of categoryRows) {
+    const productCount = Number(category.product_count ?? 0)
+    if (productCount === 0) continue
+    if (remainingOffset >= productCount) {
+      remainingOffset -= productCount
+      continue
+    }
+    if (remainingLimit <= 0) break
+
+    const take = Math.min(remainingLimit, productCount - remainingOffset)
+    const [rows] = await pool.query(
+      `SELECT ${await listProductColumns()} FROM products
+       WHERE merchant_id = ? AND category_id = ?
+       ORDER BY position, id
+       LIMIT ? OFFSET ?`,
+      [merchantId, category.id, take, remainingOffset],
+    )
+    products.push(...rows)
+    remainingLimit -= rows.length
+    remainingOffset = 0
+  }
+
+  return {
+    categoryRows,
+    products,
+    categories: groupMenu(categoryRows, products, lang, {
+      imageUrl: productImageUrl(merchantParam),
+    }),
+    menuPage: {
+      total,
+      categoryTotal: categoryRows.length,
+      limit,
+      offset,
+      hasMore: offset + limit < total,
+    },
+  }
 }
 
 const REVIEW_SELECT = `
@@ -309,6 +378,10 @@ function mapPlatformBranding(row = {}) {
 // GET /api/public/merchants/:merchantId
 export async function getPublicRestaurant(req, res, next) {
   try {
+    const includeMenu = req.query.menu !== '0'
+    const wantsMenuPage = req.query.menuLimit !== undefined || req.query.menuOffset !== undefined
+    const menuLimit = Math.max(1, Math.min(50, Number(req.query.menuLimit) || 10))
+    const menuOffset = Math.max(0, Number(req.query.menuOffset) || 0)
     // The URL segment is a slug or an id; everything below works from the
     // numeric id, so resolve once here.
     const merchant = await resolveMerchant(req.params.merchantId)
@@ -339,15 +412,48 @@ export async function getPublicRestaurant(req, res, next) {
       })
     }
 
-    const [categories] = await pool.query(
-      'SELECT * FROM categories WHERE merchant_id = ? ORDER BY position, id',
-      [merchantId],
-    )
-    const [products] = await pool.query(
-      `SELECT ${await listProductColumns()} FROM products
-       WHERE merchant_id = ? ORDER BY position, id`,
-      [merchantId],
-    )
+    let categoryRows = []
+    let products = []
+    let categories = []
+    let menuPage = null
+    if (!includeMenu) {
+      const [[categoryCount], [productCount]] = await Promise.all([
+        pool.query('SELECT COUNT(*) AS total FROM categories WHERE merchant_id = ?', [merchantId]),
+        pool.query('SELECT COUNT(*) AS total FROM products WHERE merchant_id = ?', [merchantId]),
+      ])
+      const total = Number(productCount[0]?.total ?? 0)
+      menuPage = {
+        total,
+        categoryTotal: Number(categoryCount[0]?.total ?? 0),
+        limit: menuLimit,
+        offset: 0,
+        hasMore: total > 0,
+      }
+    } else if (wantsMenuPage) {
+      const page = await getPublicMenuPage(merchantId, req.params.merchantId, req.lang, {
+        limit: menuLimit,
+        offset: menuOffset,
+      })
+      categoryRows = page.categoryRows
+      products = page.products
+      categories = page.categories
+      menuPage = page.menuPage
+    } else {
+      const [loadedCategories] = await pool.query(
+        'SELECT * FROM categories WHERE merchant_id = ? ORDER BY position, id',
+        [merchantId],
+      )
+      const [loadedProducts] = await pool.query(
+        `SELECT ${await listProductColumns()} FROM products
+         WHERE merchant_id = ? ORDER BY position, id`,
+        [merchantId],
+      )
+      categoryRows = loadedCategories
+      products = loadedProducts
+      categories = groupMenu(categoryRows, products, req.lang, {
+        imageUrl: productImageUrl(req.params.merchantId),
+      })
+    }
     const [reviews] = await pool.query(
       `${REVIEW_SELECT} WHERE merchant_id = ? ORDER BY created_at DESC, id DESC LIMIT 50`,
       [merchantId],
@@ -368,7 +474,7 @@ export async function getPublicRestaurant(req, res, next) {
     // Nothing to send when the merchant has switched the banner off — the
     // storefront then shows no carousel at all, not even the automatic one.
     const banners = profile.showBanner
-      ? await listStorefrontBanners(merchantId, req.params.merchantId, categories, products)
+      ? await listStorefrontBanners(merchantId, req.params.merchantId, categoryRows, products)
       : []
 
     // Let the browser keep a copy and revalidate it.
@@ -389,9 +495,8 @@ export async function getPublicRestaurant(req, res, next) {
       // Images are URLs, not data. The browser then fetches only the ones it
       // actually displays, caches each separately, and never downloads a
       // gallery for a product nobody opened.
-      categories: groupMenu(categories, products, req.lang, {
-        imageUrl: productImageUrl(req.params.merchantId),
-      }),
+      categories,
+      ...(menuPage ? { menuPage } : {}),
       // Merchant-uploaded slides for the top carousel. Empty means the
       // storefront builds the carousel from product photos, as it always has.
       banners,
