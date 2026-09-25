@@ -154,7 +154,7 @@ export async function createMerchant(req, res, next) {
   try {
     const {
       name, owner, email, phone, plan, branches, status, businessType, slug,
-      subscriptionExpiresAt, subscriptionStartsAt,
+      subscriptionExpiresAt, subscriptionStartsAt, copyMenuFromMerchantId,
     } = req.body ?? {}
 
     // Coerced rather than trusted: a JSON body may hold a number (or anything
@@ -281,6 +281,10 @@ export async function createMerchant(req, res, next) {
       await assignGeneratedSlug(result.insertId, businessName)
     }
 
+    if (copyMenuFromMerchantId) {
+      await copyMerchantMenu(Number(copyMenuFromMerchantId), result.insertId)
+    }
+
     const [rows] = await pool.query('SELECT * FROM merchants WHERE id = ?', [
       result.insertId,
     ])
@@ -297,6 +301,93 @@ export async function createMerchant(req, res, next) {
         .json({ status: 'error', error: duplicateMerchantMessage(err) })
     }
     next(err)
+  }
+}
+
+function jsonValue(value) {
+  if (value == null) return null
+  return typeof value === 'object' ? JSON.stringify(value) : value
+}
+
+async function copyMerchantMenu(sourceMerchantId, targetMerchantId) {
+  if (!Number.isInteger(sourceMerchantId) || sourceMerchantId <= 0) return
+  if (sourceMerchantId === Number(targetMerchantId)) return
+
+  const [source] = await pool.query('SELECT id FROM merchants WHERE id = ?', [
+    sourceMerchantId,
+  ])
+  if (!source.length) return
+
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+
+    const [categories] = await conn.query(
+      'SELECT * FROM categories WHERE merchant_id = ? ORDER BY position, id',
+      [sourceMerchantId],
+    )
+    const categoryMap = new Map()
+
+    for (const category of categories) {
+      const columns = ['merchant_id', 'name', 'position']
+      const values = [targetMerchantId, category.name, category.position ?? 0]
+      if (Object.prototype.hasOwnProperty.call(category, 'name_i18n')) {
+        columns.push('name_i18n')
+        values.push(jsonValue(category.name_i18n))
+      }
+      const [inserted] = await conn.query(
+        `INSERT INTO categories (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+        values,
+      )
+      categoryMap.set(Number(category.id), inserted.insertId)
+    }
+
+    const [products] = await conn.query(
+      'SELECT * FROM products WHERE merchant_id = ? ORDER BY position, id',
+      [sourceMerchantId],
+    )
+    const optionalColumns = [
+      'name_i18n',
+      'description',
+      'description_i18n',
+      'price',
+      'original_price',
+      'option_name',
+      'variants',
+      'attributes',
+      'age_min',
+      'age_max',
+      'brand',
+      'stock',
+      'images',
+      'image',
+      'is_available',
+      'availability',
+      'position',
+    ]
+
+    for (const product of products) {
+      const newCategoryId = categoryMap.get(Number(product.category_id))
+      if (!newCategoryId) continue
+      const columns = ['merchant_id', 'category_id', 'name']
+      const values = [targetMerchantId, newCategoryId, product.name]
+      for (const column of optionalColumns) {
+        if (!Object.prototype.hasOwnProperty.call(product, column)) continue
+        columns.push(column)
+        values.push(jsonValue(product[column]))
+      }
+      await conn.query(
+        `INSERT INTO products (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+        values,
+      )
+    }
+
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
   }
 }
 
