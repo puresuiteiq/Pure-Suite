@@ -108,6 +108,7 @@ test('parseSocialLinks: exposes exactly the known platforms', () => {
     'facebook',
     'instagram',
     'snapchat',
+    'telegram',
     'tiktok',
     'whatsapp',
   ])

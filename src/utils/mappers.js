@@ -60,7 +60,7 @@ export function parseServiceMethods(value) {
 
 /** Storefront social handles/links. Only known platforms are exposed. */
 export function parseSocialLinks(value) {
-  const empty = { instagram: '', whatsapp: '', snapchat: '', facebook: '', tiktok: '' }
+  const empty = { instagram: '', whatsapp: '', snapchat: '', facebook: '', tiktok: '', telegram: '' }
   if (!value) return empty
   try {
     const parsed = typeof value === 'string' ? JSON.parse(value) : value
