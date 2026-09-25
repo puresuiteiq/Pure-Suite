@@ -33,7 +33,7 @@ export function normalizeI18n(raw) {
  * The storefront designs a merchant can pick. 'classic' is the original and the
  * default; keep in step with saas_project/src/config/storefrontThemes.js.
  */
-export const STOREFRONT_THEMES = ['classic', 'royal', 'modern']
+export const STOREFRONT_THEMES = ['classic', 'royal', 'modern', 'pure', 'cafe', 'neon', 'magazine', 'street', 'garden', 'boutique']
 
 /** A known theme key, or 'classic' for anything else (including null). */
 export function normalizeStorefrontTheme(value) {

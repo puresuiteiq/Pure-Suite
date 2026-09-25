@@ -50,8 +50,8 @@ CREATE TABLE IF NOT EXISTS merchants (
   -- it on; its background lives in merchant_splash_media.
   splash_enabled BOOLEAN        NOT NULL DEFAULT FALSE,
   splash_tagline VARCHAR(160)   NULL,
-  -- Storefront design the merchant picked: 'classic' | 'royal' | 'modern'.
-  -- NULL = 'classic', the original design.
+  -- Storefront design the merchant picked (a key from STOREFRONT_THEMES in
+  -- src/utils/mappers.js). NULL = 'classic', the original design.
   storefront_theme VARCHAR(20)  NULL,
   -- Storefront brand colours the merchant picks (hex). Drive the accent on the
   -- public menu's buttons/prices. NULL = not set → the storefront uses its

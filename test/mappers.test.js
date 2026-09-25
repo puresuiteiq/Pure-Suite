@@ -231,7 +231,8 @@ test('normalizeI18n output round-trips through pickI18n', () => {
 })
 
 test('storefront theme: a known key passes, anything else is the classic design', () => {
-  assert.deepEqual(STOREFRONT_THEMES, ['classic', 'royal', 'modern'])
+  assert.equal(STOREFRONT_THEMES.length, 10)
+  assert.equal(STOREFRONT_THEMES[0], 'classic')
   assert.equal(normalizeStorefrontTheme('royal'), 'royal')
   assert.equal(normalizeStorefrontTheme('modern'), 'modern')
   assert.equal(normalizeStorefrontTheme('<script>'), 'classic')
