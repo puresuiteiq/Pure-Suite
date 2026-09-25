@@ -67,6 +67,14 @@ export const ERROR_CODES = {
   /** The banner (or, for a reorder, one of them) no longer exists. */
   BANNER_NOT_FOUND: 'BANNER_NOT_FOUND',
 
+  // --- Storefront welcome screen (merchant panel) --------------------------
+  /** This database has no merchant_splash_media table (db:add-splash not applied). */
+  SPLASH_UNAVAILABLE: 'SPLASH_UNAVAILABLE',
+  /** The upload is not a picture or video the storefront can show. */
+  SPLASH_MEDIA_INVALID: 'SPLASH_MEDIA_INVALID',
+  /** The upload is over the limit for its kind. Carries { max } in MB. */
+  SPLASH_MEDIA_TOO_LARGE: 'SPLASH_MEDIA_TOO_LARGE',
+
   // --- Admin operations ----------------------------------------------------
   /** A plan cannot be deleted while merchants are still assigned to it. */
   PLAN_IN_USE: 'PLAN_IN_USE',

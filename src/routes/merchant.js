@@ -22,6 +22,12 @@ import {
   deleteBanner,
   getMyBannerImage,
 } from '../controllers/bannersController.js'
+import {
+  readSplashBody,
+  uploadMySplashMedia,
+  deleteMySplashMedia,
+  getMySplashMedia,
+} from '../controllers/splashController.js'
 import { getMyReviews } from '../controllers/reviewsController.js'
 import { getMyOverview } from '../controllers/merchantOverviewController.js'
 import { getMyOrders, updateMyOrderStatus } from '../controllers/merchantOrdersController.js'
@@ -60,6 +66,12 @@ router.patch('/banners/order', reorderBanners)
 router.patch('/banners/:id', updateBanner)
 router.delete('/banners/:id', deleteBanner)
 router.get('/banners/:id/image', getMyBannerImage)
+
+// Storefront welcome screen background. The switch and tagline save with the
+// profile; the media is a raw upload of its own (see splashController).
+router.get('/splash/media', getMySplashMedia)
+router.put('/splash/media', readSplashBody, uploadMySplashMedia)
+router.delete('/splash/media', deleteMySplashMedia)
 
 // Orders (this merchant's own order history)
 router.get('/orders', getMyOrders)

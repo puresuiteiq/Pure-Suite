@@ -58,21 +58,23 @@ the password from the user menu.
 
 ## Database
 
-13 tables: `merchants`, `categories`, `products`, `merchant_banners`, `reviews`,
-`orders`, `order_items`, `service_status`, `plans`, `admins`,
-`admin_notification_states`, `merchant_notification_states`, `password_resets`.
-A 14th, `applied_migrations`, is created by the migration scripts to record
+14 tables: `merchants`, `categories`, `products`, `merchant_banners`,
+`merchant_splash_media`, `reviews`, `orders`, `order_items`, `service_status`,
+`plans`, `admins`, `admin_notification_states`, `merchant_notification_states`,
+`password_resets`. A 15th, `applied_migrations`, is created by the migration scripts to record
 themselves.
 
 ### Applied at boot
 
-`src/db/ensureSchema.js` runs two steps on every start, each independently:
+`src/db/ensureSchema.js` runs three steps on every start, each independently:
 
 - `merchants.slug` — added if missing, given a unique index, and backfilled.
 - `merchant_banners` + `merchants.show_banner` — created if missing, for the
   merchant panel's Banners page.
+- `merchant_splash_media` + `merchants.splash_enabled` / `splash_tagline` +
+  `admins.public_contact_whatsapp` — the storefront welcome screen.
 
-Both are idempotent, log under `[schema]`, and never block startup — an
+All are idempotent, log under `[schema]`, and never block startup — an
 unreachable database or a failed step is logged and the API starts anyway.
 Banner reads check for the table first, so a storefront on a database without
 it simply falls back to the carousel built from product photos.
@@ -89,7 +91,7 @@ and **fail on writes** touching a column it does not have. Those failures now
 return an explanatory error naming the script to run rather than
 "Internal server error".
 
-There are 38 `db:*` scripts. Each is idempotent and records itself in
+There are 41 `db:*` scripts. Each is idempotent and records itself in
 `applied_migrations`, so re-running is safe. The ones that change existing
 columns matter most:
 
@@ -101,6 +103,7 @@ columns matter most:
 | `npm run db:setup-auth` | Adds `merchants.password_hash` on a pre-auth database |
 | `npm run db:add-slug` | Adds `merchants.slug` and backfills it, so storefronts are reachable at `/r/mamo` instead of `/r/7`. Old numeric links keep working. Also done at boot |
 | `npm run db:add-banners` | Adds the `merchant_banners` table and `merchants.show_banner`. Until they exist the merchant Banners page cannot save, and every storefront shows the automatic product-photo carousel. Also done at boot |
+| `npm run db:add-splash` | Adds the storefront welcome screen: `merchant_splash_media`, `merchants.splash_enabled` / `splash_tagline`, and `admins.public_contact_whatsapp`. Until then the welcome-screen settings are skipped on save and no storefront shows one. Also done at boot |
 
 Restart the API afterwards: column shapes are cached per process.
 
@@ -138,7 +141,7 @@ npm test        # node --test, no extra dependencies
 
 Covers the pure modules — `utils/slug.js`, `utils/mappers.js`,
 `utils/dbErrors.js`, `utils/service.js`, `utils/menuNormalize.js`,
-`utils/banners.js`, `utils/imageResponse.js` and `middleware/language.js`. Controllers are excluded deliberately: they cache
+`utils/banners.js`, `utils/splash.js`, `utils/imageResponse.js` and `middleware/language.js`. Controllers are excluded deliberately: they cache
 schema probes in module scope with no reset hook, so testing them would make
 failures order-dependent.
 

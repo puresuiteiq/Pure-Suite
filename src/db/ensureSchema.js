@@ -25,6 +25,7 @@ const TAG = '[schema]'
 const STEPS = [
   ['merchants.slug', ensureMerchantSlug],
   ['merchant_banners', ensureMerchantBanners],
+  ['merchant_splash_media', ensureMerchantSplash],
 ]
 
 export async function ensureSchema() {
@@ -94,6 +95,46 @@ export async function ensureMerchantBanners(conn) {
     console.log(`${TAG} added merchants.show_banner`)
   }
   console.log(`${TAG} merchant_banners ready`)
+}
+
+/**
+ * The storefront welcome screen: merchants.splash_enabled / splash_tagline,
+ * the merchant_splash_media table holding its background picture or video, and
+ * admins.public_contact_whatsapp for the "designed by" credit it carries.
+ * `npm run db:add-splash` calls this same function.
+ *
+ * LONGBLOB rather than the MEDIUMTEXT data URLs used elsewhere: a video is
+ * served in byte ranges, and base64 would add a third to every one of them.
+ */
+export async function ensureMerchantSplash(conn) {
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS merchant_splash_media (
+      merchant_id  BIGINT UNSIGNED NOT NULL,
+      content_type VARCHAR(40)     NOT NULL,
+      byte_size    INT UNSIGNED    NOT NULL,
+      data         LONGBLOB        NOT NULL,
+      updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                   ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (merchant_id),
+      CONSTRAINT fk_merchant_splash_media_merchant
+        FOREIGN KEY (merchant_id) REFERENCES merchants (id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+
+  // Checked first rather than "ADD COLUMN IF NOT EXISTS", for the same MySQL /
+  // MariaDB portability reason as merchants.slug.
+  const columns = [
+    ['merchants', 'splash_enabled', 'BOOLEAN NOT NULL DEFAULT FALSE'],
+    ['merchants', 'splash_tagline', 'VARCHAR(160) NULL'],
+    ['admins', 'public_contact_whatsapp', 'VARCHAR(40) NULL'],
+  ]
+  for (const [table, column, definition] of columns) {
+    const [found] = await conn.query(`SHOW COLUMNS FROM ${table} LIKE ?`, [column])
+    if (!found.length) {
+      await conn.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+      console.log(`${TAG} added ${table}.${column}`)
+    }
+  }
+  console.log(`${TAG} storefront welcome screen ready`)
 }
 
 /**

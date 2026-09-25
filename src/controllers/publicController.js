@@ -5,6 +5,8 @@ import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
 import { imageVersion, sendImage } from '../utils/imageResponse.js'
 import { BANNER_LIST_COLUMNS, bannersAvailable } from '../db/banners.js'
 import { linkTargetSets, mapBanner } from '../utils/banners.js'
+import { mapSplash } from '../utils/splash.js'
+import { publicSplashMediaUrl, readSplashMeta, sendSplashMedia } from '../db/splash.js'
 import { enforceMerchantSubscription } from '../services/subscriptions.js'
 import {
   groupMenu,
@@ -220,6 +222,25 @@ export async function getBannerImage(req, res, next) {
   }
 }
 
+// GET /api/public/merchants/:merchantId/splash
+/**
+ * The welcome screen's background picture or video, in byte ranges.
+ *
+ * Only while the merchant has the screen switched on: an uploaded background
+ * for a screen that is off is a draft, not public content.
+ */
+export async function getSplashMedia(req, res, next) {
+  try {
+    const merchant = await resolveMerchant(req.params.merchantId)
+    if (!merchant || merchant.status === 'suspended' || !merchant.splash_enabled) {
+      return res.status(404).json({ status: 'error', error: 'Media not found' })
+    }
+    return await sendSplashMedia(req, res, merchant.id)
+  } catch (err) {
+    next(err)
+  }
+}
+
 /**
  * The merchant's active banners, in order, with image URLs.
  *
@@ -251,6 +272,8 @@ function mapPlatformBranding(row = {}) {
     name: row.public_brand_name ?? null,
     poweredByColor: row.public_powered_by_color ?? null,
     nameColor: row.public_brand_name_color ?? null,
+    // Behind the "designed by" credit on storefront welcome screens.
+    whatsapp: row.public_contact_whatsapp ?? null,
   }
 }
 
@@ -305,9 +328,19 @@ export async function getPublicRestaurant(req, res, next) {
       `${REVIEW_SELECT} WHERE merchant_id = ? ORDER BY created_at DESC, id DESC LIMIT 50`,
       [merchantId],
     )
-    const profile = mapProfile(merchantId, merchants[0], {
-      logoUrl: merchantLogoUrl(req.params.merchantId),
-    })
+    // The welcome screen's media is looked up only when the screen is on —
+    // it is the one part of the profile that costs a query of its own.
+    const splashOn = Boolean(merchants[0].splash_enabled)
+    const profile = {
+      ...mapProfile(merchantId, merchants[0], {
+        logoUrl: merchantLogoUrl(req.params.merchantId),
+      }),
+      ...mapSplash(
+        merchants[0],
+        splashOn ? await readSplashMeta(merchantId) : null,
+        publicSplashMediaUrl(req.params.merchantId),
+      ),
+    }
     // Nothing to send when the merchant has switched the banner off — the
     // storefront then shows no carousel at all, not even the automatic one.
     const banners = profile.showBanner

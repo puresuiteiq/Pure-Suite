@@ -3,12 +3,19 @@ import pool from '../config/db.js'
 import { MIN_PASSWORD_LENGTH } from '../config/auth.js'
 import { mapProfile } from '../utils/mappers.js'
 import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
+import { normalizeSplashTagline } from '../utils/splash.js'
+import { mySplashMediaUrl, splashFields } from '../db/splash.js'
 
 // Read every column and let mapProfile pick + default what it needs. Naming
 // columns explicitly meant a new column (e.g. reviews_enabled) crashed this
 // query until its migration ran; `*` is resilient, and mapProfile only ever
 // outputs whitelisted fields (never password_hash), so nothing sensitive leaks.
 const PROFILE_COLUMNS = '*'
+
+/** The profile plus its welcome-screen fields (whose media lives in its own table). */
+async function profileResponse(merchantId, row) {
+  return { ...mapProfile(merchantId, row), ...(await splashFields(merchantId, row, mySplashMediaUrl)) }
+}
 
 // GET /api/merchant/profile   (merchantId from token)
 export async function getMyProfile(req, res, next) {
@@ -20,7 +27,7 @@ export async function getMyProfile(req, res, next) {
     if (!rows.length) {
       return res.status(404).json({ status: 'error', error: 'Merchant not found' })
     }
-    res.json(mapProfile(req.merchantId, rows[0]))
+    res.json(await profileResponse(req.merchantId, rows[0]))
   } catch (err) {
     next(err)
   }
@@ -50,6 +57,8 @@ const FIELD_TO_COLUMN = {
   serviceMethods: 'service_methods',
   socialLinks: 'social_links',
   workingHours: 'working_hours',
+  splashEnabled: 'splash_enabled',
+  splashTagline: 'splash_tagline',
 }
 
 const HEX_COLOR_FIELDS = new Set([
@@ -115,8 +124,15 @@ export async function updateMyProfile(req, res, next) {
         value = value ? String(value).trim() : null
       } else if (field === 'logo') {
         value = value || null
-      } else if (field === 'isOpen' || field === 'reviewsEnabled' || field === 'showBanner') {
+      } else if (
+        field === 'isOpen' ||
+        field === 'reviewsEnabled' ||
+        field === 'showBanner' ||
+        field === 'splashEnabled'
+      ) {
         value = value ? 1 : 0
+      } else if (field === 'splashTagline') {
+        value = normalizeSplashTagline(value)
       } else if (HEX_COLOR_FIELDS.has(field)) {
         value = normalizeHexColor(value)
       } else if (field === 'latitude') {
@@ -155,7 +171,7 @@ export async function updateMyProfile(req, res, next) {
       `SELECT ${PROFILE_COLUMNS} FROM merchants WHERE id = ?`,
       [req.merchantId],
     )
-    res.json(mapProfile(req.merchantId, rows[0]))
+    res.json(await profileResponse(req.merchantId, rows[0]))
   } catch (err) {
     next(err)
   }

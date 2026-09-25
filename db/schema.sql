@@ -45,6 +45,11 @@ CREATE TABLE IF NOT EXISTS merchants (
   is_open       BOOLEAN         NOT NULL DEFAULT TRUE, -- merchant-controlled daily availability
   reviews_enabled BOOLEAN       NOT NULL DEFAULT TRUE, -- merchant can turn the customer rating system off
   show_banner   BOOLEAN         NOT NULL DEFAULT TRUE, -- merchant can hide the storefront's top banner entirely
+  -- Storefront welcome screen shown before the menu (logo, name, tagline and
+  -- an "enter" button over a picture or video). Off until the merchant turns
+  -- it on; its background lives in merchant_splash_media.
+  splash_enabled BOOLEAN        NOT NULL DEFAULT FALSE,
+  splash_tagline VARCHAR(160)   NULL,
   -- Storefront brand colours the merchant picks (hex). Drive the accent on the
   -- public menu's buttons/prices. NULL = not set → the storefront uses its
   -- green default, so existing merchants are unchanged.
@@ -195,6 +200,25 @@ CREATE TABLE IF NOT EXISTS merchant_banners (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- merchant_splash_media — the picture or video behind a merchant's storefront
+-- welcome screen, one per merchant. Raw bytes (not a data URL) because a video
+-- is served to phones in byte ranges. Created at boot too
+-- (src/db/ensureSchema.js); keep the two definitions in step.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS merchant_splash_media (
+  merchant_id  BIGINT UNSIGNED NOT NULL,
+  content_type VARCHAR(40)     NOT NULL,           -- sniffed from the bytes, never trusted from the upload
+  byte_size    INT UNSIGNED    NOT NULL,
+  data         LONGBLOB        NOT NULL,
+  -- Versions the media URL (?v=), so it can be cached for a year.
+  updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                               ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (merchant_id),
+  CONSTRAINT fk_merchant_splash_media_merchant
+    FOREIGN KEY (merchant_id) REFERENCES merchants (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
 -- reviews — customer feedback for a merchant.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS reviews (
@@ -318,6 +342,9 @@ CREATE TABLE IF NOT EXISTS admins (
   -- Text colours for the two branding strings above (hex). NULL = default slate.
   public_powered_by_color VARCHAR(9)      NULL,
   public_brand_name_color VARCHAR(9)      NULL,
+  -- WhatsApp number behind the "designed by" credit on storefront welcome
+  -- screens. NULL = the credit shows without a contact button.
+  public_contact_whatsapp VARCHAR(40)     NULL,
   created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_admins_email (email)

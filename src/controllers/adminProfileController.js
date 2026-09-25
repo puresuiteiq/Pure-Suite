@@ -24,7 +24,18 @@ function mapAppearance(row) {
     publicBrandName: row.public_brand_name ?? null,
     publicPoweredByColor: row.public_powered_by_color ?? null,
     publicBrandNameColor: row.public_brand_name_color ?? null,
+    publicContactWhatsapp: row.public_contact_whatsapp ?? null,
   }
+}
+
+// A phone number as typed ("+964 750 123 4567", "0750-123-4567"): digits and
+// one leading +, nothing else. wa.me needs the digits; storing them cleaned
+// means the storefront never builds a link out of arbitrary text.
+function normalizePhone(value) {
+  const raw = String(value ?? '').trim()
+  const digits = raw.replace(/\D/g, '').slice(0, 20)
+  if (digits.length < 6) return null
+  return raw.startsWith('+') ? `+${digits}` : digits
 }
 
 // GET /api/admin/appearance — the Super Admin's own dashboard colours.
@@ -59,6 +70,7 @@ export async function updateAppearance(req, res, next) {
       publicBrandName: 'public_brand_name',
       publicPoweredByColor: 'public_powered_by_color',
       publicBrandNameColor: 'public_brand_name_color',
+      publicContactWhatsapp: 'public_contact_whatsapp',
     }
     const HEX_FIELDS = new Set(['accentColor', 'accentShadow', 'publicPoweredByColor', 'publicBrandNameColor'])
     const assignments = []
@@ -71,6 +83,8 @@ export async function updateAppearance(req, res, next) {
         values.push(normalizeHexColor(body[field]))
       } else if (field === 'publicBrandLogo') {
         values.push(body[field] || null)
+      } else if (field === 'publicContactWhatsapp') {
+        values.push(normalizePhone(body[field]))
       } else if (field === 'publicPoweredByText') {
         values.push(normalizeText(body[field], 80))
       } else {
