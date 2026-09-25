@@ -49,6 +49,28 @@ function rowToMerchant(row) {
 // GET /api/merchants
 export async function listMerchants(req, res, next) {
   try {
+    const wantsPage = req.query.limit !== undefined || req.query.offset !== undefined
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 10))
+    const offset = Math.max(0, Number(req.query.offset) || 0)
+
+    if (wantsPage) {
+      const [[countRow], [rows]] = await Promise.all([
+        pool.query('SELECT COUNT(*) AS total FROM merchants'),
+        pool.query(
+          'SELECT * FROM merchants ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
+          [limit, offset],
+        ),
+      ])
+      const total = Number(countRow[0]?.total ?? 0)
+      return res.json({
+        items: rows.map(rowToMerchant),
+        total,
+        limit,
+        offset,
+        hasMore: offset + rows.length < total,
+      })
+    }
+
     const [rows] = await pool.query(
       'SELECT * FROM merchants ORDER BY created_at DESC, id DESC',
     )
