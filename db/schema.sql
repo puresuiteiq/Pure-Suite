@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS merchants (
   password_hash VARCHAR(255)    NULL,           -- bcrypt hash for merchant login
   phone         VARCHAR(40)     NULL,
   address       VARCHAR(255)    NULL,           -- basic info: street address
+  map_url       VARCHAR(1024)   NULL,           -- optional direct Google/Apple/etc. maps link
   description   TEXT            NULL,           -- basic info: short about/bio
   -- Plan name, referencing plans.name (VARCHAR(80)) — NOT an enum. The Super
   -- Admin designs plans in the UI, so any name must be assignable here; an
@@ -45,6 +46,7 @@ CREATE TABLE IF NOT EXISTS merchants (
   is_open       BOOLEAN         NOT NULL DEFAULT TRUE, -- merchant-controlled daily availability
   reviews_enabled BOOLEAN       NOT NULL DEFAULT TRUE, -- merchant can turn the customer rating system off
   show_banner   BOOLEAN         NOT NULL DEFAULT TRUE, -- merchant can hide the storefront's top banner entirely
+  daily_order_numbers BOOLEAN   NOT NULL DEFAULT FALSE, -- when on, visible order numbers restart from 1 every day
   -- Storefront welcome screen shown before the menu (logo, name, tagline and
   -- an "enter" button over a picture or video). Off until the merchant turns
   -- it on; its background lives in merchant_splash_media.
@@ -134,6 +136,7 @@ CREATE TABLE IF NOT EXISTS products (
   description  TEXT            NULL,
   description_i18n JSON        NULL,
   price        DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
+  currency     ENUM('IQD','USD') NOT NULL DEFAULT 'IQD',
   -- Optional "was" price for a discount. When higher than `price`, the
   -- storefront strikes it through and shows the % off. NULL = no discount.
   original_price DECIMAL(10,2) NULL,
@@ -250,6 +253,9 @@ CREATE TABLE IF NOT EXISTS orders (
   -- (this restaurant's #1, #2, …), independent of the global `id`. Assigned
   -- transactionally in createOrder; NULL only for legacy rows pre-backfill.
   merchant_order_no BIGINT UNSIGNED NULL,
+  -- The date bucket used for merchant_order_no uniqueness. It lets restaurants
+  -- optionally restart their visible numbers each day without losing history.
+  order_sequence_date DATE NULL,
   -- Who placed it, captured at checkout so the merchant's order history shows
   -- the same customer details as the confirmation screen.
   customer_name  VARCHAR(150)   NULL,
@@ -271,7 +277,7 @@ CREATE TABLE IF NOT EXISTS orders (
   KEY idx_orders_status (status),
   -- Enforces the sequence per merchant and makes concurrent inserts collide
   -- (and retry) rather than duplicate a number.
-  UNIQUE KEY uq_orders_merchant_no (merchant_id, merchant_order_no),
+  UNIQUE KEY uq_orders_merchant_date_no (merchant_id, order_sequence_date, merchant_order_no),
   CONSTRAINT fk_orders_merchant
     FOREIGN KEY (merchant_id) REFERENCES merchants (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

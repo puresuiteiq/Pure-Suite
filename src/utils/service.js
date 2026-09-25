@@ -21,6 +21,9 @@ const NO_SERVICE = {
   tableNumber: null,
 }
 
+const deliveryAreaLabel = (zone, area) =>
+  `${String(zone.name).trim()} / ${String(area.name).trim()}`.slice(0, 120)
+
 /**
  * @param {object|null} config  merchant.service_methods, already parsed
  * @param {object} body         the submitted order
@@ -40,6 +43,12 @@ export function resolveService(config, body) {
     const zones = Array.isArray(config.delivery?.zones) ? config.delivery.zones : []
     const wanted = body?.deliveryZone ? String(body.deliveryZone).trim() : ''
     const zone = zones.find((z) => z && String(z.name).trim() === wanted) ?? null
+    const areaHit = zones.reduce((found, z) => {
+      if (found) return found
+      const areas = Array.isArray(z?.areas) ? z.areas : []
+      const area = areas.find((a) => deliveryAreaLabel(z, a) === wanted)
+      return area ? { zone: z, area } : null
+    }, null)
 
     // A merchant who enables delivery without defining any zones is running
     // flat, unpriced delivery. That is a legitimate setup that works today, so
@@ -58,8 +67,17 @@ export function resolveService(config, body) {
     // was accepted, the merchant's WhatsApp message showed no area, and the
     // delivery was free. The storefront only ever submits names from the
     // merchant's own list, so reaching this means a crafted request.
-    if (!zone) {
+    if (!zone && !areaHit) {
       return { ...NO_SERVICE, error: 'ZONE_UNAVAILABLE' }
+    }
+
+    if (areaHit) {
+      return {
+        serviceMethod: 'delivery',
+        deliveryZone: deliveryAreaLabel(areaHit.zone, areaHit.area),
+        deliveryFee: Math.max(0, Math.round(Number(areaHit.area.fee) || 0)),
+        tableNumber: null,
+      }
     }
 
     return {

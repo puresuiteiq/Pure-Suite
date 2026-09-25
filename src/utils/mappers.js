@@ -9,6 +9,8 @@
  */
 export const SUPPORTED_LANGS = ['en', 'ar', 'ku-badini']
 
+const productCurrency = (value) => (String(value ?? '').toUpperCase() === 'USD' ? 'USD' : 'IQD')
+
 /**
  * Clean a submitted `{ en, ar, ku-badini }` map for storage.
  *
@@ -123,6 +125,7 @@ export function mapMenuItem(row, lang, { withGallery = true, imageUrl = null } =
     description: pickI18n(row.description_i18n, row.description ?? '', lang),
     descriptionI18n: parseI18n(row.description_i18n),
     price: Number(row.price),
+    currency: productCurrency(row.currency),
     // "Was" price for a discount (null = none). Shown struck-through when higher.
     originalPrice: row.original_price != null ? Number(row.original_price) : null,
     // Defaults to 'available' when the column is absent (pre-migration).
@@ -269,6 +272,7 @@ export function mapProfile(merchantId, row, { logoUrl = null } = {}) {
     logo: logoUrl ? (row.logo ? logoUrl(row.updated_at) : null) : (row.logo ?? null),
     phone: row.phone ?? '',
     address: row.address ?? '',
+    mapUrl: row.map_url ?? null,
     description: row.description ?? '',
     isOpen: Boolean(row.is_open),
     // Defaults to true when the column is absent (pre-migration) or null.
@@ -276,6 +280,9 @@ export function mapProfile(merchantId, row, { logoUrl = null } = {}) {
     // Whether the storefront shows its top banner at all. Same default: on
     // when the column is absent (before db:add-banners) or null.
     showBanner: row.show_banner == null ? true : Boolean(row.show_banner),
+    // Visible order numbers can restart from #1 each day for restaurants that
+    // close their day by counting today's tickets. Off by default.
+    dailyOrderNumbers: row.daily_order_numbers == null ? false : Boolean(row.daily_order_numbers),
     // The storefront design. 'classic' when the column is absent (before
     // db:add-storefront-theme), unset, or holds a theme since removed.
     storefrontTheme: normalizeStorefrontTheme(row.storefront_theme),

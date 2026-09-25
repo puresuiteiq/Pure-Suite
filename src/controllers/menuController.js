@@ -4,6 +4,7 @@ import {
   normalizeAvailability,
   normalizeAgeRange,
   normalizeAttributes,
+  normalizeCurrency,
   normalizeImages,
   normalizeOriginalPrice,
   normalizeStock,
@@ -56,6 +57,19 @@ async function hasOriginalPriceColumn() {
     originalPriceColumn = rows[0].n > 0
   }
   return originalPriceColumn
+}
+
+// Same guard for products.currency (IQD/USD per product).
+let currencyColumn
+async function hasCurrencyColumn() {
+  if (currencyColumn === undefined) {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS n FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'products' AND column_name = 'currency'`,
+    )
+    currencyColumn = rows[0].n > 0
+  }
+  return currencyColumn
 }
 
 // Same guard for the per-language menu columns (products.name_i18n /
@@ -240,6 +254,7 @@ export async function createItem(req, res, next) {
       categoryId, name, description, price, image,
       variants: rawVariants, optionName, brand, stock: rawStock, images: rawImages,
       availability: rawAvailability, attributes: rawAttributes, originalPrice: rawOriginalPrice,
+      currency: rawCurrency,
       ageMin: rawAgeMin, ageMax: rawAgeMax,
       nameI18n: rawNameI18n, descriptionI18n: rawDescriptionI18n,
     } = req.body ?? {}
@@ -247,6 +262,7 @@ export async function createItem(req, res, next) {
       return res.status(400).json({ status: 'error', error: 'categoryId is required' })
     }
     const availability = normalizeAvailability(rawAvailability)
+    const currency = normalizeCurrency(rawCurrency)
     const attributes = normalizeAttributes(rawAttributes)
     const originalPrice = normalizeOriginalPrice(rawOriginalPrice)
     const ageRange = normalizeAgeRange(rawAgeMin, rawAgeMax)
@@ -305,6 +321,10 @@ export async function createItem(req, res, next) {
       columns.push('original_price')
       values.push(originalPrice)
     }
+    if (await hasCurrencyColumn()) {
+      columns.push('currency')
+      values.push(currency)
+    }
     if (await hasAgeRangeColumn()) {
       columns.push('age_min', 'age_max')
       values.push(ageRange.min, ageRange.max)
@@ -340,6 +360,7 @@ export async function updateItem(req, res, next) {
       name, description, price, image,
       variants: rawVariants, optionName, brand, stock: rawStock, images: rawImages,
       availability: rawAvailability, attributes: rawAttributes, originalPrice: rawOriginalPrice,
+      currency: rawCurrency,
       ageMin: rawAgeMin, ageMax: rawAgeMax,
       nameI18n: rawNameI18n, descriptionI18n: rawDescriptionI18n,
     } = req.body ?? {}
@@ -352,6 +373,7 @@ export async function updateItem(req, res, next) {
     const images = normalizeImages(rawImages)
     const cover = images[0] ?? image ?? null
     const availability = normalizeAvailability(rawAvailability)
+    const currency = normalizeCurrency(rawCurrency)
     const attributes = normalizeAttributes(rawAttributes)
     const originalPrice = normalizeOriginalPrice(rawOriginalPrice)
     const ageRange = normalizeAgeRange(rawAgeMin, rawAgeMax)
@@ -390,6 +412,10 @@ export async function updateItem(req, res, next) {
     if (await hasOriginalPriceColumn()) {
       sets.push('original_price = ?')
       values.push(originalPrice)
+    }
+    if (await hasCurrencyColumn()) {
+      sets.push('currency = ?')
+      values.push(currency)
     }
     if (await hasAgeRangeColumn()) {
       sets.push('age_min = ?', 'age_max = ?')

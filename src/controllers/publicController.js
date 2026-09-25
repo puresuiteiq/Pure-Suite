@@ -703,13 +703,24 @@ export async function createOrder(req, res, next) {
         await conn.beginTransaction()
         inTransaction = true
 
-        // Per-merchant order number: this merchant's next in sequence. FOR
-        // UPDATE locks the read so two concurrent orders can't derive the same
-        // number; uq_orders_merchant_no is the backstop, and the retry below is
-        // what makes that backstop recoverable instead of an error.
+        const hasCol = await orderColumnSet(conn)
+        const supportsDailySequences = hasCol.has('order_sequence_date')
+        const dailyOrderNumbers = Boolean(merchants[0].daily_order_numbers) && supportsDailySequences
+        const [[today]] = supportsDailySequences
+          ? await conn.query("SELECT DATE_FORMAT(CURRENT_DATE(), '%Y-%m-%d') AS sequenceDate")
+          : [[{ sequenceDate: null }]]
+        const orderSequenceDate = today.sequenceDate
+        const sequenceWhere = dailyOrderNumbers
+          ? 'merchant_id = ? AND order_sequence_date = CURRENT_DATE()'
+          : 'merchant_id = ?'
+        // Per-merchant order number: either this merchant's next lifetime
+        // number, or today's next number when the merchant opted into daily
+        // numbering. FOR UPDATE locks the read so two concurrent orders can't
+        // derive the same number; the unique key is the backstop, and the retry
+        // below makes that backstop recoverable instead of an error.
         const [[seq]] = await conn.query(
           `SELECT COALESCE(MAX(merchant_order_no), 0) + 1 AS next
-           FROM orders WHERE merchant_id = ? FOR UPDATE`,
+           FROM orders WHERE ${sequenceWhere} FOR UPDATE`,
           [merchantId],
         )
         merchantOrderNo = Number(seq.next)
@@ -738,7 +749,6 @@ export async function createOrder(req, res, next) {
 
         // Build the INSERT from whichever optional columns exist (each added by
         // a later migration) — so recording an order never breaks pre-migration.
-        const hasCol = await orderColumnSet(conn)
         const cols = ['merchant_id', 'merchant_order_no', 'total', 'status']
         // 'pending' — a just-placed order has not been fulfilled, and the
         // merchant needs to see which ones are new. Every dashboard aggregate
@@ -753,6 +763,7 @@ export async function createOrder(req, res, next) {
         }
         addCol('customer_name', custName)
         addCol('customer_phone', custPhone)
+        addCol('order_sequence_date', orderSequenceDate)
         addCol('service_method', service.serviceMethod)
         addCol('delivery_zone', service.deliveryZone)
         addCol('delivery_fee', service.serviceMethod ? deliveryFee : null)

@@ -25,13 +25,28 @@ const mapOrder = (row) => ({
 // GET /api/merchant/orders   (merchantId from token)
 export async function getMyOrders(req, res, next) {
   try {
+    const wantsPage = req.query.limit !== undefined || req.query.offset !== undefined
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 10))
+    const offset = Math.max(0, Number(req.query.offset) || 0)
     // SELECT * so this keeps working if the customer columns aren't migrated yet
     // (orders has no heavy columns, so it's cheap); mapOrder defaults them.
-    const [rows] = await pool.query(
-      'SELECT * FROM orders WHERE merchant_id = ? ORDER BY created_at DESC, id DESC LIMIT 100',
-      [req.merchantId],
-    )
-    if (!rows.length) return res.json([])
+    const [rowsResult, countResult] = await Promise.all([
+      pool.query(
+        `SELECT * FROM orders
+          WHERE merchant_id = ?
+          ORDER BY created_at DESC, id DESC
+          LIMIT ? OFFSET ?`,
+        [req.merchantId, wantsPage ? limit : 100, wantsPage ? offset : 0],
+      ),
+      wantsPage
+        ? pool.query('SELECT COUNT(*) AS total FROM orders WHERE merchant_id = ?', [req.merchantId])
+        : Promise.resolve([[{ total: null }]]),
+    ])
+    const rows = rowsResult[0]
+    if (!rows.length) {
+      if (!wantsPage) return res.json([])
+      return res.json({ items: [], total: Number(countResult[0][0]?.total ?? 0), limit, offset, hasMore: false })
+    }
 
     const orders = rows.map(mapOrder)
     const byId = new Map(orders.map((o) => [o.id, o]))
@@ -52,7 +67,15 @@ export async function getMyOrders(req, res, next) {
       })
     }
 
-    res.json(orders)
+    if (!wantsPage) return res.json(orders)
+    const total = Number(countResult[0][0]?.total ?? 0)
+    res.json({
+      items: orders,
+      total,
+      limit,
+      offset,
+      hasMore: offset + orders.length < total,
+    })
   } catch (err) {
     next(err)
   }
@@ -116,6 +139,22 @@ export async function updateMyOrderStatus(req, res, next) {
       req.merchantId,
     ])
     res.json({ id: Number(req.params.id), status: next_ })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// DELETE /api/merchant/orders/:id
+export async function deleteMyOrder(req, res, next) {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM orders WHERE id = ? AND merchant_id = ?',
+      [req.params.id, req.merchantId],
+    )
+    if (!result.affectedRows) {
+      return res.status(404).json({ status: 'error', error: 'Order not found' })
+    }
+    res.json({ id: Number(req.params.id), deleted: true })
   } catch (err) {
     next(err)
   }

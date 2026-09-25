@@ -30,7 +30,7 @@ import {
 } from '../controllers/splashController.js'
 import { getMyReviews } from '../controllers/reviewsController.js'
 import { getMyOverview } from '../controllers/merchantOverviewController.js'
-import { getMyOrders, updateMyOrderStatus } from '../controllers/merchantOrdersController.js'
+import { deleteMyOrder, getMyOrders, updateMyOrderStatus } from '../controllers/merchantOrdersController.js'
 import {
   listMyNotifications,
   markMyNotificationRead,
@@ -76,6 +76,7 @@ router.delete('/splash/media', deleteMySplashMedia)
 // Orders (this merchant's own order history)
 router.get('/orders', getMyOrders)
 router.patch('/orders/:id', updateMyOrderStatus)
+router.delete('/orders/:id', deleteMyOrder)
 
 // Reviews
 router.get('/reviews', getMyReviews)

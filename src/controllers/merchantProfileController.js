@@ -39,10 +39,12 @@ const FIELD_TO_COLUMN = {
   logo: 'logo',
   phone: 'phone',
   address: 'address',
+  mapUrl: 'map_url',
   description: 'description',
   isOpen: 'is_open',
   reviewsEnabled: 'reviews_enabled',
   showBanner: 'show_banner',
+  dailyOrderNumbers: 'daily_order_numbers',
   accentColor: 'accent_color',
   accentShadow: 'accent_shadow',
   panelColor: 'panel_color',
@@ -93,6 +95,18 @@ function normalizeCoordinate(value, max) {
   return Number.isFinite(n) && Math.abs(n) <= max ? n : null
 }
 
+function normalizeMapUrl(value) {
+  if (!value) return null
+  const trimmed = String(value).trim()
+  if (!trimmed) return null
+  try {
+    const url = new URL(trimmed)
+    return ['http:', 'https:'].includes(url.protocol) ? trimmed.slice(0, 1024) : null
+  } catch {
+    return null
+  }
+}
+
 // PATCH /api/merchant/profile   (merchantId from token)
 export async function updateMyProfile(req, res, next) {
   try {
@@ -123,12 +137,15 @@ export async function updateMyProfile(req, res, next) {
         value = String(value).trim()
       } else if (field === 'phone' || field === 'address' || field === 'description') {
         value = value ? String(value).trim() : null
+      } else if (field === 'mapUrl') {
+        value = normalizeMapUrl(value)
       } else if (field === 'logo') {
         value = value || null
       } else if (
         field === 'isOpen' ||
         field === 'reviewsEnabled' ||
         field === 'showBanner' ||
+        field === 'dailyOrderNumbers' ||
         field === 'splashEnabled'
       ) {
         value = value ? 1 : 0

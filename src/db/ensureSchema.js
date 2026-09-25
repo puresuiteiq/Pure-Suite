@@ -27,6 +27,9 @@ const STEPS = [
   ['merchant_banners', ensureMerchantBanners],
   ['merchant_splash_media', ensureMerchantSplash],
   ['merchants.storefront_theme', ensureStorefrontTheme],
+  ['merchants.map_url', ensureMerchantMapUrl],
+  ['products.currency', ensureProductCurrency],
+  ['daily order numbers', ensureDailyOrderNumbers],
 ]
 
 export async function ensureSchema() {
@@ -150,6 +153,68 @@ export async function ensureStorefrontTheme(conn) {
     console.log(`${TAG} added merchants.storefront_theme`)
   }
   console.log(`${TAG} storefront themes ready`)
+}
+
+/** merchants.map_url: optional direct map link pasted by the merchant. */
+export async function ensureMerchantMapUrl(conn) {
+  const [columns] = await conn.query("SHOW COLUMNS FROM merchants LIKE 'map_url'")
+  if (!columns.length) {
+    await conn.query('ALTER TABLE merchants ADD COLUMN map_url VARCHAR(1024) NULL AFTER address')
+    console.log(`${TAG} added merchants.map_url`)
+  }
+  console.log(`${TAG} merchant map links ready`)
+}
+
+/** products.currency — lets a merchant price each product in IQD or USD. */
+export async function ensureProductCurrency(conn) {
+  const [columns] = await conn.query("SHOW COLUMNS FROM products LIKE 'currency'")
+  if (!columns.length) {
+    await conn.query(
+      "ALTER TABLE products ADD COLUMN currency ENUM('IQD','USD') NOT NULL DEFAULT 'IQD' AFTER price",
+    )
+    console.log(`${TAG} added products.currency`)
+  }
+  console.log(`${TAG} product currencies ready`)
+}
+
+/** Visible order numbers can optionally restart each day per merchant. */
+export async function ensureDailyOrderNumbers(conn) {
+  const [merchantColumns] = await conn.query("SHOW COLUMNS FROM merchants LIKE 'daily_order_numbers'")
+  if (!merchantColumns.length) {
+    await conn.query(
+      'ALTER TABLE merchants ADD COLUMN daily_order_numbers BOOLEAN NOT NULL DEFAULT FALSE AFTER show_banner',
+    )
+    console.log(`${TAG} added merchants.daily_order_numbers`)
+  }
+
+  const [orderColumns] = await conn.query("SHOW COLUMNS FROM orders LIKE 'order_sequence_date'")
+  if (!orderColumns.length) {
+    await conn.query(
+      'ALTER TABLE orders ADD COLUMN order_sequence_date DATE NULL AFTER merchant_order_no',
+    )
+    console.log(`${TAG} added orders.order_sequence_date`)
+  }
+
+  await conn.query(
+    'UPDATE orders SET order_sequence_date = DATE(created_at) WHERE merchant_order_no IS NOT NULL AND order_sequence_date IS NULL',
+  )
+
+  const [indexes] = await conn.query('SHOW INDEX FROM orders')
+  const oldIndex = indexes.find((idx) => idx.Key_name === 'uq_orders_merchant_no')
+  if (oldIndex) {
+    await conn.query('ALTER TABLE orders DROP INDEX uq_orders_merchant_no')
+    console.log(`${TAG} dropped orders.uq_orders_merchant_no`)
+  }
+
+  const newIndex = indexes.find((idx) => idx.Key_name === 'uq_orders_merchant_date_no')
+  if (!newIndex) {
+    await conn.query(
+      'ALTER TABLE orders ADD UNIQUE KEY uq_orders_merchant_date_no (merchant_id, order_sequence_date, merchant_order_no)',
+    )
+    console.log(`${TAG} added orders.uq_orders_merchant_date_no`)
+  }
+
+  console.log(`${TAG} daily order numbers ready`)
 }
 
 /**

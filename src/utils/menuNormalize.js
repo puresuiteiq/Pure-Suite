@@ -12,6 +12,14 @@ export const AVAILABILITY = ['available', 'unavailable', 'out_of_stock']
 
 export const normalizeAvailability = (v) => (AVAILABILITY.includes(v) ? v : 'available')
 
+/** Product display currency. Existing products/defaults stay Iraqi dinars. */
+export const PRODUCT_CURRENCIES = ['IQD', 'USD']
+
+export const normalizeCurrency = (v) => {
+  const value = String(v ?? 'IQD').trim().toUpperCase()
+  return PRODUCT_CURRENCIES.includes(value) ? value : 'IQD'
+}
+
 /** Optional "was" price for a discount: a non-negative number, else null. */
 export function normalizeOriginalPrice(v) {
   if (v === '' || v == null) return null
