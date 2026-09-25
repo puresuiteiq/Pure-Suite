@@ -26,6 +26,7 @@ const STEPS = [
   ['merchants.slug', ensureMerchantSlug],
   ['merchant_banners', ensureMerchantBanners],
   ['merchant_splash_media', ensureMerchantSplash],
+  ['merchants.storefront_theme', ensureStorefrontTheme],
 ]
 
 export async function ensureSchema() {
@@ -135,6 +136,20 @@ export async function ensureMerchantSplash(conn) {
     }
   }
   console.log(`${TAG} storefront welcome screen ready`)
+}
+
+/**
+ * merchants.storefront_theme — which storefront design the merchant picked in
+ * their profile. NULL reads as 'classic', the original design, so existing
+ * stores look exactly as before. `npm run db:add-storefront-theme` calls this.
+ */
+export async function ensureStorefrontTheme(conn) {
+  const [columns] = await conn.query("SHOW COLUMNS FROM merchants LIKE 'storefront_theme'")
+  if (!columns.length) {
+    await conn.query('ALTER TABLE merchants ADD COLUMN storefront_theme VARCHAR(20) NULL')
+    console.log(`${TAG} added merchants.storefront_theme`)
+  }
+  console.log(`${TAG} storefront themes ready`)
 }
 
 /**

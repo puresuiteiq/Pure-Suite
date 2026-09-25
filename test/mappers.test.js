@@ -13,6 +13,9 @@ import {
   groupMenu,
   normalizeI18n,
   SUPPORTED_LANGS,
+  STOREFRONT_THEMES,
+  normalizeStorefrontTheme,
+  mapProfile,
 } from '../src/utils/mappers.js'
 
 /**
@@ -225,4 +228,16 @@ test('normalizeI18n output round-trips through pickI18n', () => {
   assert.equal(pickI18n(stored, 'Hummus', 'ar'), 'حمص')
   assert.equal(pickI18n(stored, 'Hummus', 'ku-badini'), 'حومس')
   assert.equal(pickI18n(stored, 'Hummus', 'en'), 'Hummus', 'blank fell back')
+})
+
+test('storefront theme: a known key passes, anything else is the classic design', () => {
+  assert.deepEqual(STOREFRONT_THEMES, ['classic', 'royal', 'modern'])
+  assert.equal(normalizeStorefrontTheme('royal'), 'royal')
+  assert.equal(normalizeStorefrontTheme('modern'), 'modern')
+  assert.equal(normalizeStorefrontTheme('<script>'), 'classic')
+  assert.equal(normalizeStorefrontTheme(null), 'classic')
+  // Before db:add-storefront-theme the column is absent: existing stores keep
+  // the design they always had.
+  assert.equal(mapProfile(1, {}).storefrontTheme, 'classic')
+  assert.equal(mapProfile(1, { storefront_theme: 'modern' }).storefrontTheme, 'modern')
 })

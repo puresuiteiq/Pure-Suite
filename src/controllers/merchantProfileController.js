@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
 import pool from '../config/db.js'
 import { MIN_PASSWORD_LENGTH } from '../config/auth.js'
-import { mapProfile } from '../utils/mappers.js'
+import { mapProfile, normalizeStorefrontTheme } from '../utils/mappers.js'
 import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
 import { normalizeSplashTagline } from '../utils/splash.js'
 import { mySplashMediaUrl, splashFields } from '../db/splash.js'
@@ -59,6 +59,7 @@ const FIELD_TO_COLUMN = {
   workingHours: 'working_hours',
   splashEnabled: 'splash_enabled',
   splashTagline: 'splash_tagline',
+  storefrontTheme: 'storefront_theme',
 }
 
 const HEX_COLOR_FIELDS = new Set([
@@ -131,6 +132,8 @@ export async function updateMyProfile(req, res, next) {
         field === 'splashEnabled'
       ) {
         value = value ? 1 : 0
+      } else if (field === 'storefrontTheme') {
+        value = normalizeStorefrontTheme(value)
       } else if (field === 'splashTagline') {
         value = normalizeSplashTagline(value)
       } else if (HEX_COLOR_FIELDS.has(field)) {

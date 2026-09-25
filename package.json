@@ -49,7 +49,8 @@
     "db:add-list-indexes": "node scripts/addListIndexes.js",
     "db:add-slug": "node scripts/addSlug.js",
     "db:add-banners": "node scripts/addBanners.js",
-    "db:add-splash": "node scripts/addSplash.js"
+    "db:add-splash": "node scripts/addSplash.js",
+    "db:add-storefront-theme": "node scripts/addStorefrontTheme.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

@@ -29,6 +29,17 @@ export function normalizeI18n(raw) {
   return Object.keys(cleaned).length ? cleaned : null
 }
 
+/**
+ * The storefront designs a merchant can pick. 'classic' is the original and the
+ * default; keep in step with saas_project/src/config/storefrontThemes.js.
+ */
+export const STOREFRONT_THEMES = ['classic', 'royal', 'modern']
+
+/** A known theme key, or 'classic' for anything else (including null). */
+export function normalizeStorefrontTheme(value) {
+  return STOREFRONT_THEMES.includes(value) ? value : 'classic'
+}
+
 /** mysql2 returns JSON columns as raw strings; parse defensively. */
 export function parseWorkingHours(value) {
   if (value == null) return []
@@ -265,6 +276,9 @@ export function mapProfile(merchantId, row, { logoUrl = null } = {}) {
     // Whether the storefront shows its top banner at all. Same default: on
     // when the column is absent (before db:add-banners) or null.
     showBanner: row.show_banner == null ? true : Boolean(row.show_banner),
+    // The storefront design. 'classic' when the column is absent (before
+    // db:add-storefront-theme), unset, or holds a theme since removed.
+    storefrontTheme: normalizeStorefrontTheme(row.storefront_theme),
     // Storefront brand colours. null = not set → the storefront applies its
     // green default (so pre-migration / un-customised merchants are unchanged).
     accentColor: row.accent_color ?? null,
