@@ -12,6 +12,7 @@ import {
 } from '../utils/cookies.js'
 import { appUrl } from '../config/appUrl.js'
 import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
+import { suspendExpiredSubscriptions } from '../services/subscriptions.js'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -87,7 +88,8 @@ export async function login(req, res, next) {
 
     // Suspension is checked AFTER the password so we only reveal it to the
     // real account owner, not to an attacker probing emails.
-    if (merchant.status === 'suspended') {
+    const expiredNow = await suspendExpiredSubscriptions({ merchantId: merchant.id })
+    if (merchant.status === 'suspended' || expiredNow > 0) {
       return res.status(403).json(
         errorBody(
           'Account suspended. Please contact the platform administrator.',

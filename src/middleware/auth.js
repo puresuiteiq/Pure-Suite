@@ -3,6 +3,7 @@ import pool from '../config/db.js'
 import { JWT_SECRET } from '../config/auth.js'
 import { MERCHANT_COOKIE, ADMIN_COOKIE } from '../utils/cookies.js'
 import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
+import { suspendExpiredSubscriptions } from '../services/subscriptions.js'
 
 /**
  * Read the token from the role's httpOnly cookie (primary), falling back to an
@@ -44,6 +45,12 @@ export async function requireAuth(req, res, next) {
   // Enforce suspension on every request, so a merchant suspended mid-session is
   // blocked immediately (not only at their next login).
   try {
+    const expiredNow = await suspendExpiredSubscriptions({ merchantId: payload.merchantId })
+    if (expiredNow > 0) {
+      return res
+        .status(403)
+        .json(errorBody('Account suspended', ERROR_CODES.ACCOUNT_SUSPENDED))
+    }
     const [rows] = await pool.query(
       'SELECT status FROM merchants WHERE id = ?',
       [payload.merchantId],

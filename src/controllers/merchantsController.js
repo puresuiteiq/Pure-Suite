@@ -7,6 +7,7 @@ import { setAuthCookie, MERCHANT_COOKIE } from '../utils/cookies.js'
 import { parseVariants, parseImages } from '../utils/mappers.js'
 import { validateSlug, slugForMerchant } from '../utils/slug.js'
 import { missingColumnMessage } from '../utils/dbErrors.js'
+import { suspendExpiredSubscriptions, enforceMerchantSubscription } from '../services/subscriptions.js'
 
 /** Human-typeable temporary password (URL-safe, ~12 chars). */
 function generateTempPassword() {
@@ -46,13 +47,53 @@ function rowToMerchant(row) {
   }
 }
 
+function subscriptionStatusClause(status) {
+  switch (status) {
+    case 'active':
+      return 'subscription_expires_at > DATE_ADD(CURDATE(), INTERVAL 7 DAY)'
+    case 'expiring':
+      return 'subscription_expires_at BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)'
+    case 'expired':
+      return 'subscription_expires_at < CURDATE()'
+    case 'none':
+      return 'subscription_expires_at IS NULL'
+    default:
+      return ''
+  }
+}
+
+async function subscriptionSummary() {
+  if (!(await merchantsHasColumn('subscription_expires_at'))) {
+    return { active: 0, expiring: 0, expired: 0, none: 0 }
+  }
+  const [rows] = await pool.query(
+    `SELECT
+       SUM(CASE WHEN subscription_expires_at > DATE_ADD(CURDATE(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS active,
+       SUM(CASE WHEN subscription_expires_at BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS expiring,
+       SUM(CASE WHEN subscription_expires_at < CURDATE() THEN 1 ELSE 0 END) AS expired,
+       SUM(CASE WHEN subscription_expires_at IS NULL THEN 1 ELSE 0 END) AS none
+     FROM merchants`,
+  )
+  const row = rows[0] ?? {}
+  return {
+    active: Number(row.active ?? 0),
+    expiring: Number(row.expiring ?? 0),
+    expired: Number(row.expired ?? 0),
+    none: Number(row.none ?? 0),
+  }
+}
+
 // GET /api/merchants
 export async function listMerchants(req, res, next) {
   try {
+    await suspendExpiredSubscriptions()
     const wantsPage = req.query.limit !== undefined || req.query.offset !== undefined
     const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 10))
     const offset = Math.max(0, Number(req.query.offset) || 0)
     const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
+    const subscriptionStatus =
+      typeof req.query.subscriptionStatus === 'string' ? req.query.subscriptionStatus : ''
+    const includeSubscriptionSummary = req.query.includeSubscriptionSummary === '1'
     const where = []
     const values = []
     if (q) {
@@ -63,16 +104,29 @@ export async function listMerchants(req, res, next) {
       const like = `%${q}%`
       values.push(like, like, like, like, like, like)
     }
+    const subClause = subscriptionStatusClause(subscriptionStatus)
+    if (subClause) where.push(subClause)
     const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : ''
+    const orderSql =
+      req.query.sort === 'subscription'
+        ? `ORDER BY
+            subscription_expires_at IS NULL,
+            subscription_expires_at ASC,
+            created_at DESC,
+            id DESC`
+        : 'ORDER BY created_at DESC, id DESC'
 
     if (wantsPage) {
-      const [[countRow], [rows]] = await Promise.all([
+      const [countResult, rowsResult, summaryResult] = await Promise.all([
         pool.query(`SELECT COUNT(*) AS total FROM merchants${whereSql}`, values),
         pool.query(
-          `SELECT * FROM merchants${whereSql} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+          `SELECT * FROM merchants${whereSql} ${orderSql} LIMIT ? OFFSET ?`,
           [...values, limit, offset],
         ),
+        includeSubscriptionSummary ? subscriptionSummary() : Promise.resolve(null),
       ])
+      const countRow = countResult[0]
+      const rows = rowsResult[0]
       const total = Number(countRow[0]?.total ?? 0)
       return res.json({
         items: rows.map(rowToMerchant),
@@ -80,11 +134,12 @@ export async function listMerchants(req, res, next) {
         limit,
         offset,
         hasMore: offset + rows.length < total,
+        ...(summaryResult ? { subscriptionSummary: summaryResult } : {}),
       })
     }
 
     const [rows] = await pool.query(
-      `SELECT * FROM merchants${whereSql} ORDER BY created_at DESC, id DESC`,
+      `SELECT * FROM merchants${whereSql} ${orderSql}`,
       values,
     )
     res.json(rows.map(rowToMerchant))
@@ -102,7 +157,7 @@ export async function getMerchant(req, res, next) {
     if (!rows.length) {
       return res.status(404).json({ status: 'error', error: 'Merchant not found' })
     }
-    const merchant = rows[0]
+    const merchant = await enforceMerchantSubscription(rows[0])
     const [categories] = await pool.query(
       'SELECT id, name, position FROM categories WHERE merchant_id = ? ORDER BY position, id',
       [merchant.id],
@@ -912,11 +967,12 @@ export async function renewMerchant(req, res, next) {
       newExpiry = base.toISOString().slice(0, 10)
     }
 
-    await pool.query('UPDATE merchants SET subscription_expires_at = ? WHERE id = ?', [
+    await pool.query('UPDATE merchants SET subscription_expires_at = ?, status = ? WHERE id = ?', [
       newExpiry,
+      'active',
       req.params.id,
     ])
-    res.json({ subscriptionExpiresAt: newExpiry })
+    res.json({ subscriptionExpiresAt: newExpiry, status: 'active' })
   } catch (err) {
     next(err)
   }
@@ -947,11 +1003,12 @@ export async function cancelSubscription(req, res, next) {
     yesterday.setDate(yesterday.getDate() - 1)
     const expiresAt = yesterday.toISOString().slice(0, 10)
 
-    await pool.query('UPDATE merchants SET subscription_expires_at = ? WHERE id = ?', [
+    await pool.query('UPDATE merchants SET subscription_expires_at = ?, status = ? WHERE id = ?', [
       expiresAt,
+      'suspended',
       req.params.id,
     ])
-    res.json({ subscriptionExpiresAt: expiresAt })
+    res.json({ subscriptionExpiresAt: expiresAt, status: 'suspended' })
   } catch (err) {
     next(err)
   }

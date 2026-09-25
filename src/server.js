@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import app from './app.js'
 import { ensureSchema } from './db/ensureSchema.js'
+import { startSubscriptionExpirySweep } from './services/subscriptions.js'
 
 const PORT = Number(process.env.PORT) || 4000
 
@@ -8,6 +9,7 @@ const PORT = Number(process.env.PORT) || 4000
 // missing a column. Never throws — a database that can't be reached at boot is
 // logged and the server starts regardless (see ensureSchema).
 await ensureSchema()
+startSubscriptionExpirySweep()
 
 // Explicit 0.0.0.0 (not just the default unspecified host): on some
 // container platforms — Railway included — a bare `app.listen(PORT)` binds

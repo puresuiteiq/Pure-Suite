@@ -5,6 +5,7 @@ import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
 import { imageVersion, sendImage } from '../utils/imageResponse.js'
 import { BANNER_LIST_COLUMNS, bannersAvailable } from '../db/banners.js'
 import { linkTargetSets, mapBanner } from '../utils/banners.js'
+import { enforceMerchantSubscription } from '../services/subscriptions.js'
 import {
   groupMenu,
   mapProfile,
@@ -67,11 +68,11 @@ async function resolveMerchant(param) {
   // purely numeric, so the two forms can never collide.
   if (/^\d+$/.test(raw)) {
     const [rows] = await pool.query('SELECT * FROM merchants WHERE id = ?', [raw])
-    return rows[0] ?? null
+    return enforceMerchantSubscription(rows[0] ?? null)
   }
   if (!(await merchantsHaveSlug())) return null
   const [rows] = await pool.query('SELECT * FROM merchants WHERE slug = ?', [raw.toLowerCase()])
-  return rows[0] ?? null
+  return enforceMerchantSubscription(rows[0] ?? null)
 }
 
 /**
