@@ -47,6 +47,41 @@ function rowToMerchant(row) {
   }
 }
 
+function rowToDetailProduct(product) {
+  return {
+    id: product.id,
+    name: product.name,
+    description: product.description ?? '',
+    price: Number(product.price),
+    availability: product.availability ?? 'available',
+    optionName: product.option_name ?? null,
+    variants: parseVariants(product.variants),
+    brand: product.brand ?? null,
+    stock: product.stock == null ? null : Number(product.stock),
+    images: parseImages(product.images),
+    image: product.image ?? null,
+  }
+}
+
+function groupDetailProducts(products) {
+  const categories = []
+  const byId = new Map()
+  for (const product of products) {
+    const categoryId = product.category_id
+    if (!byId.has(categoryId)) {
+      const category = {
+        id: categoryId,
+        name: product.category_name,
+        items: [],
+      }
+      byId.set(categoryId, category)
+      categories.push(category)
+    }
+    byId.get(categoryId).items.push(rowToDetailProduct(product))
+  }
+  return categories
+}
+
 function subscriptionStatusClause(status) {
   switch (status) {
     case 'active':
@@ -151,6 +186,9 @@ export async function listMerchants(req, res, next) {
 // GET /api/merchants/:id
 export async function getMerchant(req, res, next) {
   try {
+    const wantsMenuPage = req.query.menuLimit !== undefined || req.query.menuOffset !== undefined
+    const menuLimit = Math.max(1, Math.min(50, Number(req.query.menuLimit) || 10))
+    const menuOffset = Math.max(0, Number(req.query.menuOffset) || 0)
     const [rows] = await pool.query('SELECT * FROM merchants WHERE id = ?', [
       req.params.id,
     ])
@@ -158,15 +196,53 @@ export async function getMerchant(req, res, next) {
       return res.status(404).json({ status: 'error', error: 'Merchant not found' })
     }
     const merchant = await enforceMerchantSubscription(rows[0])
-    const [categories] = await pool.query(
-      'SELECT id, name, position FROM categories WHERE merchant_id = ? ORDER BY position, id',
-      [merchant.id],
-    )
-    const [products] = await pool.query(
-      // SELECT * so a not-yet-migrated column (availability) doesn't break this.
-      `SELECT * FROM products WHERE merchant_id = ? ORDER BY position, id`,
-      [merchant.id],
-    )
+    let categories
+    let menuPage = null
+    if (wantsMenuPage) {
+      const [[categoryCount], [productCount], [products]] = await Promise.all([
+        pool.query('SELECT COUNT(*) AS total FROM categories WHERE merchant_id = ?', [
+          merchant.id,
+        ]),
+        pool.query('SELECT COUNT(*) AS total FROM products WHERE merchant_id = ?', [
+          merchant.id,
+        ]),
+        pool.query(
+          `SELECT p.*, c.id AS category_id, c.name AS category_name, c.position AS category_position
+             FROM products p
+             JOIN categories c ON c.id = p.category_id
+            WHERE p.merchant_id = ?
+            ORDER BY c.position, c.id, p.position, p.id
+            LIMIT ? OFFSET ?`,
+          [merchant.id, menuLimit, menuOffset],
+        ),
+      ])
+      const total = Number(productCount[0]?.total ?? 0)
+      categories = groupDetailProducts(products)
+      menuPage = {
+        total,
+        categoryTotal: Number(categoryCount[0]?.total ?? 0),
+        limit: menuLimit,
+        offset: menuOffset,
+        hasMore: menuOffset + products.length < total,
+      }
+    } else {
+      const [categoryRows] = await pool.query(
+        'SELECT id, name, position FROM categories WHERE merchant_id = ? ORDER BY position, id',
+        [merchant.id],
+      )
+      const [products] = await pool.query(
+        // SELECT * so a not-yet-migrated column (availability) doesn't break this.
+        `SELECT * FROM products WHERE merchant_id = ? ORDER BY position, id`,
+        [merchant.id],
+      )
+      categories = categoryRows.map((category) => ({
+        id: category.id,
+        name: category.name,
+        items: products
+          .filter((product) => product.category_id === category.id)
+          .map(rowToDetailProduct),
+      }))
+    }
 
     // The Super Admin may inspect tenant content, but never receives a
     // password hash or any other credential secret.
@@ -179,25 +255,8 @@ export async function getMerchant(req, res, next) {
         isOpen: Boolean(merchant.is_open),
         workingHours: merchant.working_hours ?? null,
       },
-      categories: categories.map((category) => ({
-        id: category.id,
-        name: category.name,
-        items: products
-          .filter((product) => product.category_id === category.id)
-          .map((product) => ({
-            id: product.id,
-            name: product.name,
-            description: product.description ?? '',
-            price: Number(product.price),
-            availability: product.availability ?? 'available',
-            optionName: product.option_name ?? null,
-            variants: parseVariants(product.variants),
-            brand: product.brand ?? null,
-            stock: product.stock == null ? null : Number(product.stock),
-            images: parseImages(product.images),
-            image: product.image ?? null,
-          })),
-      })),
+      categories,
+      ...(menuPage ? { menuPage } : {}),
     })
   } catch (err) {
     next(err)

@@ -6,11 +6,11 @@ import {
   resetPassword,
   validateResetToken,
 } from '../controllers/authController.js'
-import { authLimiter } from '../middleware/rateLimit.js'
+import { authLimiter, loginLimiter } from '../middleware/rateLimit.js'
 
 const router = Router()
 
-router.post('/login', authLimiter, login)
+router.post('/login', loginLimiter, login)
 router.post('/logout', logout)
 router.post('/forgot-password', authLimiter, forgotPassword)
 router.get('/reset-password/validate', validateResetToken)

@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 
 /**
  * Request rate limiting.
@@ -23,6 +23,11 @@ const num = (value, fallback) => {
 }
 
 const MINUTE = 60 * 1000
+
+function loginIdentifier(req) {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+  return email || `anonymous:${ipKeyGenerator(req.ip)}`
+}
 
 /**
  * Rejections use the same `{ status: 'error', error }` envelope every
@@ -52,6 +57,32 @@ export const authLimiter = rateLimit({
     'Too many sign-in attempts. Please wait a few minutes and try again.',
   ),
 })
+
+const loginIpLimiter = rateLimit({
+  windowMs: num(process.env.RATE_LIMIT_LOGIN_WINDOW_MIN, 15) * MINUTE,
+  limit: num(process.env.RATE_LIMIT_LOGIN_IP_MAX, 20),
+  skipSuccessfulRequests: true,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  handler: jsonHandler(
+    'Too many sign-in attempts from this connection. Please wait a few minutes and try again.',
+  ),
+})
+
+const loginAccountLimiter = rateLimit({
+  windowMs: num(process.env.RATE_LIMIT_LOGIN_WINDOW_MIN, 15) * MINUTE,
+  limit: num(process.env.RATE_LIMIT_LOGIN_ACCOUNT_MAX, 5),
+  skipSuccessfulRequests: true,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: loginIdentifier,
+  handler: jsonHandler(
+    'Too many failed sign-in attempts for this account. Please wait a few minutes and try again.',
+  ),
+})
+
+export const loginLimiter = [loginIpLimiter, loginAccountLimiter]
 
 /**
  * Unauthenticated storefront writes (reviews, orders).

@@ -89,14 +89,28 @@ async function hasAgeRangeColumn() {
 // GET /api/merchant/menu
 export async function getMyMenu(req, res, next) {
   try {
+    const wantsPage = req.query.limit !== undefined || req.query.offset !== undefined
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 10))
+    const offset = Math.max(0, Number(req.query.offset) || 0)
     const [categories] = await pool.query(
       'SELECT * FROM categories WHERE merchant_id = ? ORDER BY position, id',
       [req.merchantId],
     )
-    const [products] = await pool.query(
-      'SELECT * FROM products WHERE merchant_id = ? ORDER BY position, id',
-      [req.merchantId],
-    )
+    const [productsResult, countResult] = await Promise.all([
+      pool.query(
+        `SELECT * FROM products
+          WHERE merchant_id = ?
+          ORDER BY category_id, position, id
+          ${wantsPage ? 'LIMIT ? OFFSET ?' : ''}`,
+        wantsPage ? [req.merchantId, limit, offset] : [req.merchantId],
+      ),
+      wantsPage
+        ? pool.query('SELECT COUNT(*) AS total FROM products WHERE merchant_id = ?', [
+            req.merchantId,
+          ])
+        : Promise.resolve([[{ total: null }]]),
+    ])
+    const products = productsResult[0]
     // Deliberately NO req.lang here.
     //
     // mapMenuItem resolves `name` through pickI18n, so passing the caller's
@@ -109,7 +123,19 @@ export async function getMyMenu(req, res, next) {
     // The admin panel always shows what the merchant typed. Only public
     // storefront reads resolve translations. The per-language values still
     // travel on nameI18n / descriptionI18n for the editor to populate.
-    res.json(groupMenu(categories, products))
+    const menu = groupMenu(categories, products)
+    if (!wantsPage) return res.json(menu)
+
+    const total = Number(countResult[0][0]?.total ?? 0)
+    res.json({
+      categories: menu,
+      page: {
+        total,
+        limit,
+        offset,
+        hasMore: offset + products.length < total,
+      },
+    })
   } catch (err) {
     next(err)
   }
