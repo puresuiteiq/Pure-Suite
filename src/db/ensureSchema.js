@@ -31,6 +31,7 @@ const STEPS = [
   ['products.currency', ensureProductCurrency],
   ['daily order numbers', ensureDailyOrderNumbers],
   ['listing indexes', ensureListingIndexes],
+  ['products.cover_focus', ensureCoverFocus],
 ]
 
 export async function ensureSchema() {
@@ -238,6 +239,20 @@ export async function ensureListingIndexes(conn) {
     console.log(`${TAG} added ${table}.${name}`)
   }
   console.log(`${TAG} listing indexes ready`)
+}
+
+/**
+ * products.cover_focus — where a product's cover photo sits inside a
+ * storefront card ("x y" percentages), set by dragging it in the menu editor.
+ * NULL = each card's own default framing. `npm run db:add-cover-focus` calls this.
+ */
+export async function ensureCoverFocus(conn) {
+  const [columns] = await conn.query("SHOW COLUMNS FROM products LIKE 'cover_focus'")
+  if (!columns.length) {
+    await conn.query('ALTER TABLE products ADD COLUMN cover_focus VARCHAR(16) NULL')
+    console.log(`${TAG} added products.cover_focus`)
+  }
+  console.log(`${TAG} product cover framing ready`)
 }
 
 /**

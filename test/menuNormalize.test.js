@@ -12,6 +12,7 @@ import {
   normalizeStock,
   normalizeImages,
   validateItem,
+  normalizeFocus,
 } from '../src/utils/menuNormalize.js'
 
 /**
@@ -152,4 +153,14 @@ test('an item needs a name, and a price unless priced by variants', () => {
     null,
     'variants supply the price, so the base price is not required',
   )
+})
+
+test('normalizeFocus: stores the dragged point as rounded, clamped percentages', () => {
+  assert.equal(normalizeFocus({ x: 50, y: 20 }), '50 20')
+  assert.equal(normalizeFocus({ x: 33.6, y: 0.4 }), '34 0')
+  assert.equal(normalizeFocus({ x: -10, y: 140 }), '0 100')
+  // Not set, or not numbers: the card keeps its own default framing.
+  assert.equal(normalizeFocus(null), null)
+  assert.equal(normalizeFocus({ x: 'left', y: 10 }), null)
+  assert.equal(normalizeFocus('50 50'), null)
 })

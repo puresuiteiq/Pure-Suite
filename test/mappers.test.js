@@ -16,6 +16,7 @@ import {
   STOREFRONT_THEMES,
   normalizeStorefrontTheme,
   mapProfile,
+  parseFocus,
 } from '../src/utils/mappers.js'
 
 /**
@@ -241,4 +242,14 @@ test('storefront theme: a known key passes, anything else is the classic design'
   // the design they always had.
   assert.equal(mapProfile(1, {}).storefrontTheme, 'classic')
   assert.equal(mapProfile(1, { storefront_theme: 'modern' }).storefrontTheme, 'modern')
+})
+
+test('parseFocus: reads the stored framing back, rejecting anything malformed', () => {
+  assert.deepEqual(parseFocus('50 20'), { x: 50, y: 20 })
+  assert.equal(parseFocus(null), null)
+  assert.equal(parseFocus('150 20'), null)
+  assert.equal(parseFocus('50% 20%'), null)
+  // Before db:add-cover-focus the column is absent: no framing, card default.
+  assert.equal(mapMenuItem({ id: 1, name: 'x', price: '1' }).coverFocus, null)
+  assert.deepEqual(mapMenuItem({ id: 1, name: 'x', price: '1', cover_focus: '10 90' }).coverFocus, { x: 10, y: 90 })
 })

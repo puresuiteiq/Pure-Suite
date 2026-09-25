@@ -134,6 +134,8 @@ export function mapMenuItem(row, lang, { withGallery = true, imageUrl = null } =
     variants,
     // Extra unpriced option groups (e.g. Size) picked alongside variants.
     attributes: parseAttributes(row.attributes),
+    // Where the cover sits inside a storefront card (null = card default).
+    coverFocus: parseFocus(row.cover_focus),
     // Suitable age range in years (null = not specified).
     ageMin: row.age_min != null ? Number(row.age_min) : null,
     ageMax: row.age_max != null ? Number(row.age_max) : null,
@@ -211,6 +213,15 @@ export function parseAttributes(value) {
   } catch {
     return []
   }
+}
+
+/** products.cover_focus ("x y") → { x, y } percentages, or null when unset. */
+export function parseFocus(value) {
+  const match = /^(\d{1,3}) (\d{1,3})$/.exec(String(value ?? '').trim())
+  if (!match) return null
+  const x = Number(match[1])
+  const y = Number(match[2])
+  return x <= 100 && y <= 100 ? { x, y } : null
 }
 
 /** Product image gallery → array of URLs (tolerates a bare string or null). */

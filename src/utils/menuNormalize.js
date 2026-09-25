@@ -104,6 +104,23 @@ export function normalizeStock(stock) {
   return { stock: n, error: null }
 }
 
+/**
+ * Where the cover photo is centred inside a storefront card — the point the
+ * merchant dragged to in the editor, as percentages from the left and top.
+ *
+ * Only the framing is stored; the photo itself is never cropped, so the
+ * product sheet still shows all of it. Returns the "x y" string stored in
+ * products.cover_focus, or null for "not set" (each card keeps its default).
+ */
+export function normalizeFocus(focus) {
+  if (!focus || typeof focus !== 'object') return null
+  const x = Number(focus.x)
+  const y = Number(focus.y)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+  const clamp = (n) => Math.min(100, Math.max(0, Math.round(n)))
+  return `${clamp(x)} ${clamp(y)}`
+}
+
 /** Image gallery: array of non-empty strings (data/CDN URLs). */
 export function normalizeImages(images) {
   if (!Array.isArray(images)) return []

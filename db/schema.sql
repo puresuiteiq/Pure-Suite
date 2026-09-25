@@ -158,6 +158,9 @@ CREATE TABLE IF NOT EXISTS products (
   stock        INT             NULL,           -- NULL = not tracked; >=0 tracked; 0 = out of stock
   images       JSON            NULL,           -- gallery: array of data/CDN URLs; `image` stays the cover
   image        MEDIUMTEXT      NULL,           -- cover image (= images[0]); data URL or CDN URL
+  -- Where the cover sits inside a storefront card: "x y" percentages the
+  -- merchant dragged to. The photo itself is never cropped. NULL = card default.
+  cover_focus  VARCHAR(16)     NULL,
   is_available TINYINT(1)      NOT NULL DEFAULT 1,
   -- Merchant-set per-item availability shown on the storefront: for sale,
   -- temporarily unavailable, or sold out. Applies to every item type.

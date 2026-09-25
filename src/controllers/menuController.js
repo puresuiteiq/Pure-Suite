@@ -10,6 +10,7 @@ import {
   normalizeStock,
   normalizeVariants,
   validateItem,
+  normalizeFocus,
 } from '../utils/menuNormalize.js'
 import { imageVersion, sendImage } from '../utils/imageResponse.js'
 
@@ -99,6 +100,19 @@ async function hasAgeRangeColumn() {
     ageRangeColumn = rows[0].n > 0
   }
   return ageRangeColumn
+}
+
+// Same guard for products.cover_focus (where the cover sits in a card).
+let coverFocusColumn
+async function hasCoverFocusColumn() {
+  if (coverFocusColumn === undefined) {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS n FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'products' AND column_name = 'cover_focus'`,
+    )
+    coverFocusColumn = rows[0].n > 0
+  }
+  return coverFocusColumn
 }
 
 const merchantProductImageUrl = (productId, index, updatedAt) =>
@@ -422,6 +436,10 @@ export async function createItem(req, res, next) {
       columns.push('age_min', 'age_max')
       values.push(ageRange.min, ageRange.max)
     }
+    if (await hasCoverFocusColumn()) {
+      columns.push('cover_focus')
+      values.push(cover ? normalizeFocus(req.body?.coverFocus) : null)
+    }
     if (await hasTranslationColumns()) {
       const nameI18n = normalizeI18n(rawNameI18n)
       const descriptionI18n = normalizeI18n(rawDescriptionI18n)
@@ -513,6 +531,11 @@ export async function updateItem(req, res, next) {
     if (await hasAgeRangeColumn()) {
       sets.push('age_min = ?', 'age_max = ?')
       values.push(ageRange.min, ageRange.max)
+    }
+    // Only when sent: a save that doesn't mention the framing keeps it.
+    if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'coverFocus') && (await hasCoverFocusColumn())) {
+      sets.push('cover_focus = ?')
+      values.push(cover ? normalizeFocus(req.body.coverFocus) : null)
     }
     if (await hasTranslationColumns()) {
       const nameI18n = normalizeI18n(rawNameI18n)
