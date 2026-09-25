@@ -9,7 +9,7 @@ import { RANGE_UNSATISFIABLE, mapSplash, parseRange } from '../utils/splash.js'
  * The media is a BLOB, not a data URL like every other image here: a video is
  * too big to travel as base64 JSON, and a phone plays it through a series of
  * byte-range requests. Each one reads only its own slice (SUBSTRING), so
- * scrubbing through a 15 MB video never pulls 15 MB out of MySQL per request.
+ * scrubbing through a 10 MB video never pulls 10 MB out of MySQL per request.
  */
 
 let tableExists = null

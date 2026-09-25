@@ -16,7 +16,7 @@ export const SPLASH_TAGLINE_MAX = 160
  */
 export const SPLASH_MAX_BYTES = {
   image: 5 * 1024 * 1024,
-  video: 15 * 1024 * 1024,
+  video: 10 * 1024 * 1024,
 }
 
 /**

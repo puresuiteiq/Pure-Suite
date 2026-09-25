@@ -15,7 +15,7 @@ import {
  * The merchant's own welcome-screen background.
  *
  * Unlike every other upload in the panel this is a raw body, not a data URL in
- * JSON: a video is up to 15 MB, which base64 would push past the API's JSON
+ * JSON: a video is up to 10 MB, which base64 would push past the API's JSON
  * limit. The enabled switch and tagline are ordinary profile fields and save
  * with the rest of the profile; only the media has its own endpoints.
  *
