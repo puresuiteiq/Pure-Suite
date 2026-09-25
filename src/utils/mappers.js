@@ -228,10 +228,14 @@ export function parseImages(value) {
 export function groupMenu(categoryRows, productRows, lang, options) {
   const byCategory = new Map()
   for (const c of categoryRows) {
+    const coverProductId = c.cover_product_id ?? null
     byCategory.set(c.id, {
       id: c.id,
       name: pickI18n(c.name_i18n, c.name, lang),
       nameI18n: parseI18n(c.name_i18n),
+      image: coverProductId && options?.imageUrl
+        ? options.imageUrl(coverProductId, 0, c.cover_product_updated_at)
+        : null,
       items: [],
     })
   }

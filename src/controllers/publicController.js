@@ -299,7 +299,25 @@ async function listStorefrontBanners(merchantId, merchantParam, categories, prod
 
 async function getPublicMenuPage(merchantId, merchantParam, lang, { limit, offset }) {
   const [categoryRows] = await pool.query(
-    `SELECT c.*, COUNT(p.id) AS product_count
+    `SELECT c.*, COUNT(p.id) AS product_count,
+            (
+              SELECT cp.id
+                FROM products cp
+               WHERE cp.merchant_id = c.merchant_id
+                 AND cp.category_id = c.id
+                 AND (CHAR_LENGTH(cp.image) > 0 OR COALESCE(JSON_LENGTH(cp.images), 0) > 0)
+               ORDER BY cp.position, cp.id
+               LIMIT 1
+            ) AS cover_product_id,
+            (
+              SELECT cp.updated_at
+                FROM products cp
+               WHERE cp.merchant_id = c.merchant_id
+                 AND cp.category_id = c.id
+                 AND (CHAR_LENGTH(cp.image) > 0 OR COALESCE(JSON_LENGTH(cp.images), 0) > 0)
+               ORDER BY cp.position, cp.id
+               LIMIT 1
+            ) AS cover_product_updated_at
        FROM categories c
        LEFT JOIN products p ON p.category_id = c.id AND p.merchant_id = c.merchant_id
       WHERE c.merchant_id = ?
@@ -440,7 +458,28 @@ export async function getPublicRestaurant(req, res, next) {
       menuPage = page.menuPage
     } else {
       const [loadedCategories] = await pool.query(
-        'SELECT * FROM categories WHERE merchant_id = ? ORDER BY position, id',
+        `SELECT c.*,
+                (
+                  SELECT cp.id
+                    FROM products cp
+                   WHERE cp.merchant_id = c.merchant_id
+                     AND cp.category_id = c.id
+                     AND (CHAR_LENGTH(cp.image) > 0 OR COALESCE(JSON_LENGTH(cp.images), 0) > 0)
+                   ORDER BY cp.position, cp.id
+                   LIMIT 1
+                ) AS cover_product_id,
+                (
+                  SELECT cp.updated_at
+                    FROM products cp
+                   WHERE cp.merchant_id = c.merchant_id
+                     AND cp.category_id = c.id
+                     AND (CHAR_LENGTH(cp.image) > 0 OR COALESCE(JSON_LENGTH(cp.images), 0) > 0)
+                   ORDER BY cp.position, cp.id
+                   LIMIT 1
+                ) AS cover_product_updated_at
+           FROM categories c
+          WHERE c.merchant_id = ?
+          ORDER BY c.position, c.id`,
         [merchantId],
       )
       const [loadedProducts] = await pool.query(
