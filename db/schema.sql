@@ -170,6 +170,9 @@ CREATE TABLE IF NOT EXISTS products (
   PRIMARY KEY (id),
   KEY idx_products_merchant (merchant_id),
   KEY idx_products_category (category_id),
+  KEY idx_products_merchant_order (merchant_id, position, id),
+  KEY idx_products_category_order (category_id, position, id),
+  KEY idx_products_merchant_category_order (merchant_id, category_id, position, id),
   CONSTRAINT fk_products_merchant
     FOREIGN KEY (merchant_id) REFERENCES merchants (id) ON DELETE CASCADE,
   CONSTRAINT fk_products_category

@@ -26,6 +26,8 @@ const NAME = 'add-list-indexes'
 const INDEXES = [
   { table: 'categories', name: 'idx_categories_merchant_order', columns: '(merchant_id, position, id)' },
   { table: 'products', name: 'idx_products_merchant_order', columns: '(merchant_id, position, id)' },
+  { table: 'products', name: 'idx_products_category_order', columns: '(category_id, position, id)' },
+  { table: 'products', name: 'idx_products_merchant_category_order', columns: '(merchant_id, category_id, position, id)' },
   { table: 'reviews', name: 'idx_reviews_merchant_created', columns: '(merchant_id, created_at)' },
 ]
 

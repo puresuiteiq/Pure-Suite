@@ -30,6 +30,7 @@ const STEPS = [
   ['merchants.map_url', ensureMerchantMapUrl],
   ['products.currency', ensureProductCurrency],
   ['daily order numbers', ensureDailyOrderNumbers],
+  ['listing indexes', ensureListingIndexes],
 ]
 
 export async function ensureSchema() {
@@ -215,6 +216,28 @@ export async function ensureDailyOrderNumbers(conn) {
   }
 
   console.log(`${TAG} daily order numbers ready`)
+}
+
+/** Composite indexes for paginated menu/listing reads. */
+export async function ensureListingIndexes(conn) {
+  const indexes = [
+    ['categories', 'idx_categories_merchant_order', '(merchant_id, position, id)'],
+    ['products', 'idx_products_merchant_order', '(merchant_id, position, id)'],
+    ['products', 'idx_products_category_order', '(category_id, position, id)'],
+    ['products', 'idx_products_merchant_category_order', '(merchant_id, category_id, position, id)'],
+    ['reviews', 'idx_reviews_merchant_created', '(merchant_id, created_at)'],
+  ]
+  for (const [table, name, columns] of indexes) {
+    const [rows] = await conn.query(
+      `SELECT COUNT(*) AS n FROM information_schema.statistics
+       WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?`,
+      [table, name],
+    )
+    if (Number(rows[0]?.n ?? 0) > 0) continue
+    await conn.query(`CREATE INDEX ${name} ON ${table} ${columns}`)
+    console.log(`${TAG} added ${table}.${name}`)
+  }
+  console.log(`${TAG} listing indexes ready`)
 }
 
 /**

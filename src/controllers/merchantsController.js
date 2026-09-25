@@ -110,6 +110,57 @@ function groupDetailProducts(products, options = {}) {
   return categories
 }
 
+async function getMerchantMenuPage(merchantId, { limit, offset }) {
+  const [categoryRows] = await pool.query(
+    `SELECT c.id, c.name, c.position, COUNT(p.id) AS product_count
+       FROM categories c
+       LEFT JOIN products p ON p.category_id = c.id AND p.merchant_id = c.merchant_id
+      WHERE c.merchant_id = ?
+      GROUP BY c.id, c.name, c.position
+      ORDER BY c.position, c.id`,
+    [merchantId],
+  )
+  const total = categoryRows.reduce((sum, category) => sum + Number(category.product_count ?? 0), 0)
+  const productColumns = await listDetailProductColumns()
+  const categories = []
+  let remainingOffset = offset
+  let remainingLimit = limit
+
+  for (const category of categoryRows) {
+    const productCount = Number(category.product_count ?? 0)
+    if (productCount === 0) continue
+    if (remainingOffset >= productCount) {
+      remainingOffset -= productCount
+      continue
+    }
+    if (remainingLimit <= 0) break
+
+    const take = Math.min(remainingLimit, productCount - remainingOffset)
+    const [products] = await pool.query(
+      `SELECT ${productColumns}, ? AS category_name, ? AS category_position
+         FROM products p
+        WHERE p.merchant_id = ? AND p.category_id = ?
+        ORDER BY p.position, p.id
+        LIMIT ? OFFSET ?`,
+      [category.name, category.position, merchantId, category.id, take, remainingOffset],
+    )
+    categories.push(...groupDetailProducts(products, { imageUrl: adminProductImageUrl(merchantId) }))
+    remainingLimit -= products.length
+    remainingOffset = 0
+  }
+
+  return {
+    categories,
+    menuPage: {
+      total,
+      categoryTotal: categoryRows.length,
+      limit,
+      offset,
+      hasMore: offset + limit < total,
+    },
+  }
+}
+
 function subscriptionStatusClause(status) {
   switch (status) {
     case 'active':
@@ -214,6 +265,7 @@ export async function listMerchants(req, res, next) {
 // GET /api/merchants/:id
 export async function getMerchant(req, res, next) {
   try {
+    const includeMenu = req.query.menu !== '0'
     const wantsMenuPage = req.query.menuLimit !== undefined || req.query.menuOffset !== undefined
     const menuLimit = Math.max(1, Math.min(50, Number(req.query.menuLimit) || 10))
     const menuOffset = Math.max(0, Number(req.query.menuOffset) || 0)
@@ -226,34 +278,31 @@ export async function getMerchant(req, res, next) {
     const merchant = await enforceMerchantSubscription(rows[0])
     let categories
     let menuPage = null
-    if (wantsMenuPage) {
-      const productColumns = await listDetailProductColumns()
-      const [[categoryCount], [productCount], [products]] = await Promise.all([
+    if (!includeMenu) {
+      const [[categoryCount], [productCount]] = await Promise.all([
         pool.query('SELECT COUNT(*) AS total FROM categories WHERE merchant_id = ?', [
           merchant.id,
         ]),
         pool.query('SELECT COUNT(*) AS total FROM products WHERE merchant_id = ?', [
           merchant.id,
         ]),
-        pool.query(
-          `SELECT ${productColumns}, c.name AS category_name, c.position AS category_position
-             FROM products p
-             JOIN categories c ON c.id = p.category_id
-            WHERE p.merchant_id = ?
-            ORDER BY c.position, c.id, p.position, p.id
-            LIMIT ? OFFSET ?`,
-          [merchant.id, menuLimit, menuOffset],
-        ),
       ])
       const total = Number(productCount[0]?.total ?? 0)
-      categories = groupDetailProducts(products, { imageUrl: adminProductImageUrl(merchant.id) })
+      categories = []
       menuPage = {
         total,
         categoryTotal: Number(categoryCount[0]?.total ?? 0),
         limit: menuLimit,
-        offset: menuOffset,
-        hasMore: menuOffset + products.length < total,
+        offset: 0,
+        hasMore: total > 0,
       }
+    } else if (wantsMenuPage) {
+      const page = await getMerchantMenuPage(merchant.id, {
+        limit: menuLimit,
+        offset: menuOffset,
+      })
+      categories = page.categories
+      menuPage = page.menuPage
     } else {
       const [categoryRows] = await pool.query(
         'SELECT id, name, position FROM categories WHERE merchant_id = ? ORDER BY position, id',
