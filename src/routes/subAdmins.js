@@ -2,6 +2,7 @@ import { Router } from 'express'
 import {
   listSubAdmins,
   createSubAdmin,
+  updateSubAdminStatus,
   resetSubAdminPassword,
   deleteSubAdmin,
 } from '../controllers/subAdminsController.js'
@@ -11,6 +12,7 @@ const router = Router()
 
 router.get('/', listSubAdmins)
 router.post('/', createSubAdmin)
+router.patch('/:id/status', updateSubAdminStatus)
 router.post('/:id/reset-password', resetSubAdminPassword)
 router.delete('/:id', deleteSubAdmin)
 

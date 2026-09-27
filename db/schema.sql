@@ -367,6 +367,7 @@ CREATE TABLE IF NOT EXISTS admins (
   -- only add merchants and manage the ones they added (never delete or
   -- suspend). created_by = the super admin who made the sub-admin.
   role          VARCHAR(20)     NOT NULL DEFAULT 'super',
+  status        VARCHAR(20)     NOT NULL DEFAULT 'active',
   created_by    BIGINT UNSIGNED NULL,
   created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),

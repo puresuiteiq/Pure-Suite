@@ -36,13 +36,14 @@ const mapSubAdmin = (row) => ({
   id: Number(row.id),
   name: row.name ?? '',
   email: row.email,
+  status: row.status === 'blocked' ? 'blocked' : 'active',
   merchantCount: Number(row.merchant_count ?? 0),
   createdAt: row.created_at ? new Date(row.created_at).toISOString().slice(0, 10) : null,
 })
 
 async function readSubAdmin(id) {
   const [rows] = await pool.query(
-    `SELECT a.id, a.name, a.email, a.created_at,
+    `SELECT a.id, a.name, a.email, a.status, a.created_at,
             (SELECT COUNT(*) FROM merchants m WHERE m.created_by_admin_id = a.id) AS merchant_count
        FROM admins a WHERE a.id = ? AND a.role = 'sub'`,
     [id],
@@ -55,7 +56,7 @@ export async function listSubAdmins(req, res, next) {
   try {
     if (!(await hasRoleColumn())) return res.json([])
     const [rows] = await pool.query(
-      `SELECT a.id, a.name, a.email, a.created_at,
+      `SELECT a.id, a.name, a.email, a.status, a.created_at,
               (SELECT COUNT(*) FROM merchants m WHERE m.created_by_admin_id = a.id) AS merchant_count
          FROM admins a WHERE a.role = 'sub'
         ORDER BY a.created_at DESC, a.id DESC`,
@@ -102,6 +103,24 @@ export async function createSubAdmin(req, res, next) {
         .status(409)
         .json(errorBody('That email is already used by another account.', ERROR_CODES.EMAIL_TAKEN))
     }
+    next(err)
+  }
+}
+
+// PATCH /api/admins/:id/status  { status: 'active' | 'blocked' }
+export async function updateSubAdminStatus(req, res, next) {
+  try {
+    if (!(await hasRoleColumn())) return unavailable(res)
+    const status = req.body?.status === 'blocked' ? 'blocked' : 'active'
+    const [result] = await pool.query(`UPDATE admins SET status = ? WHERE id = ? AND role = 'sub'`, [
+      status,
+      req.params.id,
+    ])
+    if (!result.affectedRows) {
+      return res.status(404).json({ status: 'error', error: 'Sub-admin not found' })
+    }
+    res.json(mapSubAdmin(await readSubAdmin(req.params.id)))
+  } catch (err) {
     next(err)
   }
 }

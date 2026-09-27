@@ -56,6 +56,14 @@ export async function login(req, res, next) {
       admin?.password_hash &&
       (await bcrypt.compare(password, admin.password_hash))
     ) {
+      if (adminRole(admin) === 'sub' && admin.status === 'blocked') {
+        return res.status(403).json(
+          errorBody(
+            'Account disabled. Please contact the platform administrator.',
+            ERROR_CODES.ACCOUNT_SUSPENDED,
+          ),
+        )
+      }
       const token = jwt.sign(
         { adminId: admin.id, email: admin.email, role: 'admin' },
         JWT_SECRET,

@@ -252,6 +252,7 @@ export async function ensureListingIndexes(conn) {
 export async function ensureAdminRoles(conn) {
   const columns = [
     ['admins', 'role', "VARCHAR(20) NOT NULL DEFAULT 'super'"],
+    ['admins', 'status', "VARCHAR(20) NOT NULL DEFAULT 'active'"],
     ['admins', 'created_by', 'BIGINT UNSIGNED NULL'],
     ['merchants', 'created_by_admin_id', 'BIGINT UNSIGNED NULL'],
   ]

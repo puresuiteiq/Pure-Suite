@@ -98,6 +98,9 @@ export async function requireAdmin(req, res, next) {
     if (!rows.length) {
       return res.status(401).json({ status: 'error', error: 'Account no longer exists' })
     }
+    if (adminRole(rows[0]) === 'sub' && rows[0].status === 'blocked') {
+      return res.status(401).json({ status: 'error', error: 'Account disabled' })
+    }
     req.admin = {
       id: rows[0].id,
       email: rows[0].email,

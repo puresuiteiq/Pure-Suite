@@ -8,6 +8,7 @@ import {
   setAuthCookie,
   clearAuthCookie,
 } from '../utils/cookies.js'
+import { adminRole } from '../utils/adminRoles.js'
 
 // POST /api/admin/login  { email, password }
 export async function adminLogin(req, res, next) {
@@ -19,10 +20,7 @@ export async function adminLogin(req, res, next) {
         .json({ status: 'error', error: 'Email and password are required' })
     }
 
-    const [rows] = await pool.query(
-      'SELECT id, name, email, password_hash FROM admins WHERE email = ?',
-      [email.trim()],
-    )
+    const [rows] = await pool.query('SELECT * FROM admins WHERE email = ?', [email.trim()])
     const admin = rows[0]
 
     const ok =
@@ -31,6 +29,14 @@ export async function adminLogin(req, res, next) {
       return res
         .status(401)
         .json(errorBody('Invalid email or password', ERROR_CODES.INVALID_CREDENTIALS))
+    }
+    if (adminRole(admin) === 'sub' && admin.status === 'blocked') {
+      return res.status(403).json(
+        errorBody(
+          'Account disabled. Please contact the platform administrator.',
+          ERROR_CODES.ACCOUNT_SUSPENDED,
+        ),
+      )
     }
 
     const token = jwt.sign(
