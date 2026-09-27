@@ -257,6 +257,7 @@ export async function listMerchants(req, res, next) {
     const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 10))
     const offset = Math.max(0, Number(req.query.offset) || 0)
     const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
+    const createdBy = Number(req.query.createdBy) || 0
     const subscriptionStatus =
       typeof req.query.subscriptionStatus === 'string' ? req.query.subscriptionStatus : ''
     const includeSubscriptionSummary = req.query.includeSubscriptionSummary === '1'
@@ -272,6 +273,10 @@ export async function listMerchants(req, res, next) {
     }
     const subClause = subscriptionStatusClause(subscriptionStatus)
     if (subClause) where.push(subClause)
+    if (createdBy > 0 && isSuperAdmin(req.admin) && (await merchantsHasColumn('created_by_admin_id'))) {
+      where.push('created_by_admin_id = ?')
+      values.push(createdBy)
+    }
     const scope = await ownershipScope(req.admin)
     if (scope) {
       where.push(scope.sql)
