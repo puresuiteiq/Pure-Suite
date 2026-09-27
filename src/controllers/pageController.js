@@ -75,8 +75,13 @@ export function renderAppPage(indexPath) {
   return async (req, res, next) => {
     try {
       const html = injectPageMeta(readIndex(indexPath), pageMetaTags(await metaFor(req)))
-      // Always revalidated: this is the file that names the current asset hashes.
-      res.setHeader('Cache-Control', 'no-cache')
+      // Never store HTML: it is the file that names the current asset hashes.
+      // A stale copy can keep pointing browsers at an old app/API build until
+      // the user clears site data, which is exactly the class of production
+      // failure this endpoint must avoid.
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+      res.setHeader('Pragma', 'no-cache')
+      res.setHeader('Expires', '0')
       res.type('html').send(html)
     } catch (err) {
       next(err)

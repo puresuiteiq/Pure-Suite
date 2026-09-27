@@ -161,7 +161,9 @@ if (fs.existsSync(path.join(frontendDist, 'index.html'))) {
       index: false,
       setHeaders(res, filePath) {
         if (filePath.endsWith('index.html')) {
-          res.setHeader('Cache-Control', 'no-cache')
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+          res.setHeader('Pragma', 'no-cache')
+          res.setHeader('Expires', '0')
         }
       },
     }),
