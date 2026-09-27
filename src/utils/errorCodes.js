@@ -76,6 +76,10 @@ export const ERROR_CODES = {
   SPLASH_MEDIA_TOO_LARGE: 'SPLASH_MEDIA_TOO_LARGE',
 
   // --- Admin operations ----------------------------------------------------
+  /** A sub-admin tried something only the main admin may do. */
+  ADMIN_FORBIDDEN: 'ADMIN_FORBIDDEN',
+  /** The email already belongs to an admin or a merchant (it is a login). */
+  EMAIL_TAKEN: 'EMAIL_TAKEN',
   /** A plan cannot be deleted while merchants are still assigned to it. */
   PLAN_IN_USE: 'PLAN_IN_USE',
 

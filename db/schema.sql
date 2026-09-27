@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS merchants (
   -- Storefront design the merchant picked (a key from STOREFRONT_THEMES in
   -- src/utils/mappers.js). NULL = 'classic', the original design.
   storefront_theme VARCHAR(20)  NULL,
+  -- The admin who added this merchant; a sub-admin sees only their own.
+  -- NULL = added before sub-admins existed (the main admin's).
+  created_by_admin_id BIGINT UNSIGNED NULL,
   -- Storefront brand colours the merchant picks (hex). Drive the accent on the
   -- public menu's buttons/prices. NULL = not set → the storefront uses its
   -- green default, so existing merchants are unchanged.
@@ -360,6 +363,11 @@ CREATE TABLE IF NOT EXISTS admins (
   -- WhatsApp number behind the "designed by" credit on storefront welcome
   -- screens. NULL = the credit shows without a contact button.
   public_contact_whatsapp VARCHAR(40)     NULL,
+  -- 'super' = the platform owner (everything); 'sub' = a sub-admin who can
+  -- only add merchants and manage the ones they added (never delete or
+  -- suspend). created_by = the super admin who made the sub-admin.
+  role          VARCHAR(20)     NOT NULL DEFAULT 'super',
+  created_by    BIGINT UNSIGNED NULL,
   created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_admins_email (email)

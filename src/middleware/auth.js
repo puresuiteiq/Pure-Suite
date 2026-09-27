@@ -4,6 +4,7 @@ import { JWT_SECRET } from '../config/auth.js'
 import { MERCHANT_COOKIE, ADMIN_COOKIE } from '../utils/cookies.js'
 import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
 import { suspendExpiredSubscriptions } from '../services/subscriptions.js'
+import { adminRole } from '../utils/adminRoles.js'
 
 /**
  * Read the token from the role's httpOnly cookie (primary), falling back to an
@@ -76,7 +77,7 @@ export async function requireAuth(req, res, next) {
  * Require a valid ADMIN token (role='admin'). 401 for a missing/invalid token,
  * 403 for a valid token that isn't an admin (e.g. a merchant's).
  */
-export function requireAdmin(req, res, next) {
+export async function requireAdmin(req, res, next) {
   const token = getToken(req, ADMIN_COOKIE)
   if (!token) {
     return res.status(401).json({ status: 'error', error: 'Authentication required' })
@@ -88,6 +89,44 @@ export function requireAdmin(req, res, next) {
   if (payload.role !== 'admin') {
     return res.status(403).json({ status: 'error', error: 'Admin access required' })
   }
-  req.admin = { id: payload.adminId, email: payload.email }
+  // The role comes from the database on every request, never the token: a
+  // sub-admin the main admin deletes loses access at once, rather than when
+  // their 7-day token expires. SELECT * so an install without the role
+  // column reads every admin as 'super' (see adminRole).
+  try {
+    const [rows] = await pool.query('SELECT * FROM admins WHERE id = ?', [payload.adminId])
+    if (!rows.length) {
+      return res.status(401).json({ status: 'error', error: 'Account no longer exists' })
+    }
+    req.admin = {
+      id: rows[0].id,
+      email: rows[0].email,
+      name: rows[0].name ?? '',
+      role: adminRole(rows[0]),
+    }
+  } catch (err) {
+    return next(err)
+  }
   next()
+}
+
+/**
+ * Reads open to every admin, writes for the main admin only — for data a
+ * sub-admin's forms need to show but must not change (the plans list).
+ */
+export function requireSuperAdminForWrites(req, res, next) {
+  if (req.method === 'GET' || req.method === 'HEAD') return next()
+  return requireSuperAdmin(req, res, next)
+}
+
+/**
+ * Only the main admin. Mounted after requireAdmin on every platform-wide area
+ * (overview, revenue, plans, orders, reviews, notifications, sub-admins): a
+ * sub-admin works in Merchants alone.
+ */
+export function requireSuperAdmin(req, res, next) {
+  if (req.admin?.role === 'super') return next()
+  return res
+    .status(403)
+    .json(errorBody('Only the main admin can do this.', ERROR_CODES.ADMIN_FORBIDDEN))
 }

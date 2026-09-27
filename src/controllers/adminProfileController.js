@@ -38,6 +38,12 @@ function normalizePhone(value) {
   return raw.startsWith('+') ? `+${digits}` : digits
 }
 
+// GET /api/admin/me — who is signed in, and as which role. The panel checks
+// this on load, so a role changed (or an admin deleted) since sign-in shows.
+export function getMe(req, res) {
+  res.json({ id: req.admin.id, email: req.admin.email, name: req.admin.name, role: req.admin.role })
+}
+
 // GET /api/admin/appearance — the Super Admin's own dashboard colours.
 // SELECT * so a not-yet-migrated column can't crash the read.
 export async function getAppearance(req, res, next) {

@@ -32,6 +32,7 @@ const STEPS = [
   ['daily order numbers', ensureDailyOrderNumbers],
   ['listing indexes', ensureListingIndexes],
   ['products.cover_focus', ensureCoverFocus],
+  ['admin roles', ensureAdminRoles],
 ]
 
 export async function ensureSchema() {
@@ -239,6 +240,35 @@ export async function ensureListingIndexes(conn) {
     console.log(`${TAG} added ${table}.${name}`)
   }
   console.log(`${TAG} listing indexes ready`)
+}
+
+/**
+ * Sub-admins: admins.role ('super' | 'sub') and admins.created_by, plus
+ * merchants.created_by_admin_id — which admin added each merchant, so a
+ * sub-admin sees and manages only their own. Every existing admin becomes
+ * 'super' (the column default), so nobody loses access.
+ * `npm run db:add-admin-roles` calls this.
+ */
+export async function ensureAdminRoles(conn) {
+  const columns = [
+    ['admins', 'role', "VARCHAR(20) NOT NULL DEFAULT 'super'"],
+    ['admins', 'created_by', 'BIGINT UNSIGNED NULL'],
+    ['merchants', 'created_by_admin_id', 'BIGINT UNSIGNED NULL'],
+  ]
+  for (const [table, column, definition] of columns) {
+    const [found] = await conn.query(`SHOW COLUMNS FROM ${table} LIKE ?`, [column])
+    if (!found.length) {
+      await conn.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+      console.log(`${TAG} added ${table}.${column}`)
+    }
+  }
+  // A sub-admin's merchant list filters on this on every page load.
+  const [indexes] = await conn.query("SHOW INDEX FROM merchants WHERE Column_name = 'created_by_admin_id'")
+  if (!indexes.length) {
+    await conn.query('CREATE INDEX idx_merchants_created_by ON merchants (created_by_admin_id)')
+    console.log(`${TAG} added index idx_merchants_created_by`)
+  }
+  console.log(`${TAG} admin roles ready`)
 }
 
 /**

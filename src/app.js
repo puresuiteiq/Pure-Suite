@@ -19,7 +19,8 @@ import adminOrdersRouter from './routes/adminOrders.js'
 import notificationsRouter from './routes/notifications.js'
 import adminReviewsRouter from './routes/adminReviews.js'
 import adminProfileRouter from './routes/adminProfile.js'
-import { requireAdmin } from './middleware/auth.js'
+import { requireAdmin, requireSuperAdmin, requireSuperAdminForWrites } from './middleware/auth.js'
+import subAdminsRouter from './routes/subAdmins.js'
 import { detectLanguage } from './middleware/language.js'
 import { issueCsrfToken, csrfProtection } from './middleware/csrf.js'
 import { publicWriteLimiter, trustProxyHops } from './middleware/rateLimit.js'
@@ -113,14 +114,21 @@ app.use('/api/merchant', merchantRouter)
 // limiter skips GET, so browsing a menu is never throttled.
 app.use('/api/public', publicWriteLimiter, publicRouter)
 
-// Super Admin — require an admin-role token.
+// Admin areas. requireAdmin admits the main admin and sub-admins alike;
+// requireSuperAdmin then shuts sub-admins out of everything platform-wide. A
+// sub-admin works in Merchants, which scopes itself to the merchants they
+// added (merchantsController), and can read — not change — the plans list
+// their merchant forms offer.
 app.use('/api/merchants', requireAdmin, merchantsRouter)
-app.use('/api/overview', requireAdmin, overviewRouter)
-app.use('/api/services', requireAdmin, servicesRouter)
-app.use('/api/plans', requireAdmin, plansRouter)
-app.use('/api/orders', requireAdmin, adminOrdersRouter)
-app.use('/api/notifications', requireAdmin, notificationsRouter)
-app.use('/api/admin/reviews', requireAdmin, adminReviewsRouter)
+app.use('/api/overview', requireAdmin, requireSuperAdmin, overviewRouter)
+app.use('/api/services', requireAdmin, requireSuperAdmin, servicesRouter)
+app.use('/api/plans', requireAdmin, requireSuperAdminForWrites, plansRouter)
+app.use('/api/orders', requireAdmin, requireSuperAdmin, adminOrdersRouter)
+app.use('/api/notifications', requireAdmin, requireSuperAdmin, notificationsRouter)
+app.use('/api/admin/reviews', requireAdmin, requireSuperAdmin, adminReviewsRouter)
+app.use('/api/admins', requireAdmin, requireSuperAdmin, subAdminsRouter)
+// Own profile: every admin may read their appearance and change their own
+// password; editing the platform-wide appearance is guarded in the router.
 app.use('/api/admin', requireAdmin, adminProfileRouter)
 
 // Single-service deploys (Railway, or any host running just this one process)

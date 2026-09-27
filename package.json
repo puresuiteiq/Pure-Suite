@@ -51,7 +51,8 @@
     "db:add-banners": "node scripts/addBanners.js",
     "db:add-splash": "node scripts/addSplash.js",
     "db:add-storefront-theme": "node scripts/addStorefrontTheme.js",
-    "db:add-cover-focus": "node scripts/addCoverFocus.js"
+    "db:add-cover-focus": "node scripts/addCoverFocus.js",
+    "db:add-admin-roles": "node scripts/addAdminRoles.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

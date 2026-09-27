@@ -9,6 +9,8 @@ import { validateSlug, slugForMerchant } from '../utils/slug.js'
 import { missingColumnMessage } from '../utils/dbErrors.js'
 import { imageVersion, sendImage } from '../utils/imageResponse.js'
 import { suspendExpiredSubscriptions, enforceMerchantSubscription } from '../services/subscriptions.js'
+import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
+import { canManageMerchant, isSuperAdmin, stripSubAdminFields } from '../utils/adminRoles.js'
 
 /** Human-typeable temporary password (URL-safe, ~12 chars). */
 function generateTempPassword() {
@@ -45,7 +47,56 @@ function rowToMerchant(row) {
     joinedAt: row.created_at
       ? new Date(row.created_at).toISOString().slice(0, 10)
       : null,
+    // The admin who added it ({ id, name } via withCreators); null when added
+    // before sub-admins existed, or by an admin since deleted.
+    createdBy: row.created_by_admin_id != null ? { id: Number(row.created_by_admin_id), name: null } : null,
   }
+}
+
+/**
+ * Fill in each merchant's creator name — one query for the whole page, rather
+ * than a join that would have to qualify every column the list filters on.
+ */
+async function withCreators(merchants) {
+  const ids = [...new Set(merchants.map((m) => m.createdBy?.id).filter(Boolean))]
+  if (!ids.length) return merchants
+  const [admins] = await pool.query(
+    `SELECT id, name, email FROM admins WHERE id IN (${ids.map(() => '?').join(', ')})`,
+    ids,
+  )
+  const names = new Map(admins.map((a) => [Number(a.id), a.name || a.email]))
+  return merchants.map((m) =>
+    m.createdBy ? { ...m, createdBy: { id: m.createdBy.id, name: names.get(m.createdBy.id) ?? null } } : m,
+  )
+}
+
+/**
+ * A sub-admin may reach only the merchants they added. Answers 404 rather
+ * than 403 for anyone else's, so ids can't be probed. True when allowed.
+ */
+async function ensureCanManage(req, res, merchantId) {
+  if (isSuperAdmin(req.admin)) return true
+  const [rows] = await pool.query('SELECT * FROM merchants WHERE id = ?', [merchantId])
+  if (canManageMerchant(req.admin, rows[0])) return true
+  res.status(404).json({ status: 'error', error: 'Merchant not found' })
+  return false
+}
+
+/** Main-admin-only actions (delete, cancel a subscription). True when refused. */
+function refuseSubAdmin(req, res) {
+  if (isSuperAdmin(req.admin)) return false
+  res.status(403).json(errorBody('Only the main admin can do this.', ERROR_CODES.ADMIN_FORBIDDEN))
+  return true
+}
+
+/**
+ * The WHERE a sub-admin's lists are confined to. A database without the
+ * column can't say whose a merchant is, so a sub-admin there sees none.
+ */
+async function ownershipScope(admin) {
+  if (isSuperAdmin(admin)) return null
+  if (!(await merchantsHasColumn('created_by_admin_id'))) return { sql: '1 = 0', values: [] }
+  return { sql: 'created_by_admin_id = ?', values: [admin.id] }
 }
 
 const adminProductImageUrl = (merchantId) => (productId, index, updatedAt) =>
@@ -176,7 +227,7 @@ function subscriptionStatusClause(status) {
   }
 }
 
-async function subscriptionSummary() {
+async function subscriptionSummary(scope = null) {
   if (!(await merchantsHasColumn('subscription_expires_at'))) {
     return { active: 0, expiring: 0, expired: 0, none: 0 }
   }
@@ -186,7 +237,8 @@ async function subscriptionSummary() {
        SUM(CASE WHEN subscription_expires_at BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS expiring,
        SUM(CASE WHEN subscription_expires_at < CURDATE() THEN 1 ELSE 0 END) AS expired,
        SUM(CASE WHEN subscription_expires_at IS NULL THEN 1 ELSE 0 END) AS none
-     FROM merchants`,
+     FROM merchants${scope ? ` WHERE ${scope.sql}` : ''}`,
+    scope?.values ?? [],
   )
   const row = rows[0] ?? {}
   return {
@@ -220,6 +272,11 @@ export async function listMerchants(req, res, next) {
     }
     const subClause = subscriptionStatusClause(subscriptionStatus)
     if (subClause) where.push(subClause)
+    const scope = await ownershipScope(req.admin)
+    if (scope) {
+      where.push(scope.sql)
+      values.push(...scope.values)
+    }
     const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : ''
     const orderSql =
       req.query.sort === 'subscription'
@@ -237,13 +294,13 @@ export async function listMerchants(req, res, next) {
           `SELECT * FROM merchants${whereSql} ${orderSql} LIMIT ? OFFSET ?`,
           [...values, limit, offset],
         ),
-        includeSubscriptionSummary ? subscriptionSummary() : Promise.resolve(null),
+        includeSubscriptionSummary ? subscriptionSummary(scope) : Promise.resolve(null),
       ])
       const countRow = countResult[0]
       const rows = rowsResult[0]
       const total = Number(countRow[0]?.total ?? 0)
       return res.json({
-        items: rows.map(rowToMerchant),
+        items: await withCreators(rows.map(rowToMerchant)),
         total,
         limit,
         offset,
@@ -256,7 +313,7 @@ export async function listMerchants(req, res, next) {
       `SELECT * FROM merchants${whereSql} ${orderSql}`,
       values,
     )
-    res.json(rows.map(rowToMerchant))
+    res.json(await withCreators(rows.map(rowToMerchant)))
   } catch (err) {
     next(err)
   }
@@ -265,6 +322,7 @@ export async function listMerchants(req, res, next) {
 // GET /api/merchants/:id
 export async function getMerchant(req, res, next) {
   try {
+    if (!(await ensureCanManage(req, res, req.params.id))) return
     const includeMenu = req.query.menu !== '0'
     const wantsMenuPage = req.query.menuLimit !== undefined || req.query.menuOffset !== undefined
     const menuLimit = Math.max(1, Math.min(50, Number(req.query.menuLimit) || 10))
@@ -326,7 +384,7 @@ export async function getMerchant(req, res, next) {
     // password hash or any other credential secret.
     res.json({
       merchant: {
-        ...rowToMerchant(merchant),
+        ...(await withCreators([rowToMerchant(merchant)]))[0],
         address: merchant.address ?? '',
     description: merchant.description ?? '',
         logo: merchant.logo ?? null,
@@ -344,6 +402,7 @@ export async function getMerchant(req, res, next) {
 // GET /api/merchants/:id/products/:productId/image/:index
 export async function getMerchantProductImage(req, res, next) {
   try {
+    if (!(await ensureCanManage(req, res, req.params.id))) return
     const [merchantRows] = await pool.query('SELECT id FROM merchants WHERE id = ?', [req.params.id])
     if (!merchantRows.length) {
       return res.status(404).json({ status: 'error', error: 'Image not found' })
@@ -368,6 +427,7 @@ export async function getMerchantProductImage(req, res, next) {
 // POST /api/merchants
 export async function createMerchant(req, res, next) {
   try {
+    req.body = stripSubAdminFields(req.admin, req.body)
     const {
       name, owner, email, phone, plan, branches, status, businessType, slug,
       subscriptionExpiresAt, subscriptionStartsAt, copyMenuFromMerchantId,
@@ -410,6 +470,8 @@ export async function createMerchant(req, res, next) {
       })
     }
 
+    if (copyMenuFromMerchantId && !(await ensureCanManage(req, res, copyMenuFromMerchantId))) return
+
     // Generate + hash an initial password so the created account can log in
     // immediately. The plaintext is returned ONCE for the admin to share.
     const tempPassword = generateTempPassword()
@@ -434,6 +496,10 @@ export async function createMerchant(req, res, next) {
       values.push(normalizedType || 'restaurant')
     } else if (businessType !== undefined) {
       warnDropped('business_type')
+    }
+    if (await merchantsHasColumn('created_by_admin_id')) {
+      columns.push('created_by_admin_id')
+      values.push(req.admin.id)
     }
     const canStorePassword = await merchantsHasColumn('password_hash')
     if (canStorePassword) {
@@ -507,7 +573,7 @@ export async function createMerchant(req, res, next) {
     // tempPassword is included only on this create response, never stored/read
     // back — and only when there was a password_hash column to store it in.
     res.status(201).json({
-      ...rowToMerchant(rows[0]),
+      ...(await withCreators([rowToMerchant(rows[0])]))[0],
       ...(canStorePassword ? { tempPassword } : {}),
     })
   } catch (err) {
@@ -867,6 +933,9 @@ function normalizeBusinessType(value) {
 // full Edit Merchant form (body { name, owner, email, phone, plan, status }).
 export async function updateMerchant(req, res, next) {
   try {
+    if (!(await ensureCanManage(req, res, req.params.id))) return
+    // A sub-admin never suspends: their body's status is dropped.
+    req.body = stripSubAdminFields(req.admin, req.body)
     const body = req.body ?? {}
     const has = (f) => Object.prototype.hasOwnProperty.call(body, f)
 
@@ -975,7 +1044,7 @@ export async function updateMerchant(req, res, next) {
     const [rows] = await pool.query('SELECT * FROM merchants WHERE id = ?', [
       req.params.id,
     ])
-    res.json(rowToMerchant(rows[0]))
+    res.json((await withCreators([rowToMerchant(rows[0])]))[0])
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
       return res
@@ -989,6 +1058,7 @@ export async function updateMerchant(req, res, next) {
 // DELETE /api/merchants/:id
 export async function deleteMerchant(req, res, next) {
   try {
+    if (refuseSubAdmin(req, res)) return
     const [result] = await pool.query('DELETE FROM merchants WHERE id = ?', [
       req.params.id,
     ])
@@ -1007,6 +1077,7 @@ export async function deleteMerchant(req, res, next) {
 // an existing password. This generates a fresh one-time credential instead.
 export async function resetMerchantPassword(req, res, next) {
   try {
+    if (!(await ensureCanManage(req, res, req.params.id))) return
     const [rows] = await pool.query(
       'SELECT id, email FROM merchants WHERE id = ?',
       [req.params.id],
@@ -1035,6 +1106,7 @@ export async function resetMerchantPassword(req, res, next) {
 // The `impersonatedBy` claim is the audit trail; the token is short-lived.
 export async function impersonateMerchant(req, res, next) {
   try {
+    if (!(await ensureCanManage(req, res, req.params.id))) return
     const [rows] = await pool.query(
       'SELECT id, email, business_name, status FROM merchants WHERE id = ?',
       [req.params.id],
@@ -1086,6 +1158,7 @@ export async function impersonateMerchant(req, res, next) {
 // current expiry.
 export async function renewMerchant(req, res, next) {
   try {
+    if (!(await ensureCanManage(req, res, req.params.id))) return
     if (!(await merchantsHasColumn('subscription_expires_at'))) {
       return res.status(409).json({
         status: 'error',
@@ -1147,6 +1220,7 @@ export async function renewMerchant(req, res, next) {
 // ever existed rather than one that was cancelled.
 export async function cancelSubscription(req, res, next) {
   try {
+    if (refuseSubAdmin(req, res)) return
     if (!(await merchantsHasColumn('subscription_expires_at'))) {
       return res.status(409).json({
         status: 'error',

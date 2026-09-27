@@ -12,6 +12,7 @@ import {
 } from '../utils/cookies.js'
 import { appUrl } from '../config/appUrl.js'
 import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
+import { adminRole } from '../utils/adminRoles.js'
 import { suspendExpiredSubscriptions } from '../services/subscriptions.js'
 
 const isProd = process.env.NODE_ENV === 'production'
@@ -46,7 +47,8 @@ export async function login(req, res, next) {
     // Admins are matched first, so an address present in both tables signs in
     // as the higher-privilege account.
     const [adminRows] = await pool.query(
-      'SELECT id, name, email, password_hash FROM admins WHERE email = ?',
+      // SELECT * so an install without admins.role still signs in (as 'super').
+      'SELECT * FROM admins WHERE email = ?',
       [address],
     )
     const admin = adminRows[0]
@@ -65,7 +67,7 @@ export async function login(req, res, next) {
 
       return res.json({
         role: 'admin',
-        admin: { id: admin.id, email: admin.email, name: admin.name },
+        admin: { id: admin.id, email: admin.email, name: admin.name, role: adminRole(admin) },
       })
     }
 

@@ -75,6 +75,7 @@ themselves.
   `admins.public_contact_whatsapp` — the storefront welcome screen.
 - `merchants.storefront_theme` — the storefront design the merchant picked.
 - `products.cover_focus` — where each product's cover sits inside a card.
+- `admins.role` / `admins.created_by` / `merchants.created_by_admin_id` — sub-admins.
 
 All are idempotent, log under `[schema]`, and never block startup — an
 unreachable database or a failed step is logged and the API starts anyway.
@@ -93,7 +94,7 @@ and **fail on writes** touching a column it does not have. Those failures now
 return an explanatory error naming the script to run rather than
 "Internal server error".
 
-There are 43 `db:*` scripts. Each is idempotent and records itself in
+There are 44 `db:*` scripts. Each is idempotent and records itself in
 `applied_migrations`, so re-running is safe. The ones that change existing
 columns matter most:
 
@@ -107,6 +108,7 @@ columns matter most:
 | `npm run db:add-banners` | Adds the `merchant_banners` table and `merchants.show_banner`. Until they exist the merchant Banners page cannot save, and every storefront shows the automatic product-photo carousel. Also done at boot |
 | `npm run db:add-splash` | Adds the storefront welcome screen: `merchant_splash_media`, `merchants.splash_enabled` / `splash_tagline`, and `admins.public_contact_whatsapp`. Until then the welcome-screen settings are skipped on save and no storefront shows one. Also done at boot |
 | `npm run db:add-storefront-theme` | Adds `merchants.storefront_theme`, the storefront design picked in the merchant profile. Until then every store shows the classic design and the choice is skipped on save. Also done at boot |
+| `npm run db:add-admin-roles` | Adds sub-admins: `admins.role` (every existing admin becomes `super`), `admins.created_by`, and `merchants.created_by_admin_id`. Until then every admin is a main admin and sub-admins can't be created. Also done at boot |
 | `npm run db:add-cover-focus` | Adds `products.cover_focus`, the framing a merchant drags a product photo to. Until then cards use their default framing and the choice is skipped on save. Also done at boot |
 
 Restart the API afterwards: column shapes are cached per process.
