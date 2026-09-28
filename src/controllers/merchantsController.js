@@ -50,6 +50,7 @@ function rowToMerchant(row) {
     // The admin who added it ({ id, name } via withCreators); null when added
     // before sub-admins existed, or by an admin since deleted.
     createdBy: row.created_by_admin_id != null ? { id: Number(row.created_by_admin_id), name: null } : null,
+    showSplashCredit: row.show_splash_credit == null ? true : Boolean(row.show_splash_credit),
   }
 }
 
@@ -1022,6 +1023,13 @@ export async function updateMerchant(req, res, next) {
         setCol('subscription_starts_at', normalizeDate(body.subscriptionStartsAt))
       } else {
         warnDropped('subscription_starts_at')
+      }
+    }
+    if (has('showSplashCredit')) {
+      if (await merchantsHasColumn('show_splash_credit')) {
+        setCol('show_splash_credit', body.showSplashCredit ? 1 : 0)
+      } else {
+        warnDropped('show_splash_credit')
       }
     }
 

@@ -149,6 +149,7 @@ export async function ensureMerchantSplash(conn) {
   const columns = [
     ['merchants', 'splash_enabled', 'BOOLEAN NOT NULL DEFAULT FALSE'],
     ['merchants', 'splash_tagline', 'VARCHAR(160) NULL'],
+    ['merchants', 'show_splash_credit', 'BOOLEAN NOT NULL DEFAULT TRUE'],
     ['admins', 'public_contact_whatsapp', 'VARCHAR(40) NULL'],
   ]
   for (const [table, column, definition] of columns) {

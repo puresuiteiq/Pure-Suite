@@ -298,6 +298,8 @@ export function mapProfile(merchantId, row, { logoUrl = null } = {}) {
     // Visible order numbers can restart from #1 each day for restaurants that
     // close their day by counting today's tickets. Off by default.
     dailyOrderNumbers: row.daily_order_numbers == null ? false : Boolean(row.daily_order_numbers),
+    // Platform "Designed by" credit on the welcome screen. Visible by default.
+    showSplashCredit: row.show_splash_credit == null ? true : Boolean(row.show_splash_credit),
     // The storefront design. 'classic' when the column is absent (before
     // db:add-storefront-theme), unset, or holds a theme since removed.
     storefrontTheme: normalizeStorefrontTheme(row.storefront_theme),
