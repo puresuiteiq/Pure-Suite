@@ -1,4 +1,5 @@
 import pool from '../config/db.js'
+import { suspendExpiredSubscriptions } from '../services/subscriptions.js'
 
 /**
  * Super Admin notifications — built from real platform activity, not canned
@@ -75,6 +76,7 @@ const money = (v, lang) =>
 // GET /api/notifications
 export async function listNotifications(req, res, next) {
   try {
+    await suspendExpiredSubscriptions()
     // The dinar unit follows the caller's UI language (sent as ?lang=).
     const lang = String(req.query.lang || 'en').split('-')[0]
     const [[merchants], [reviews], [orders], expiring] = await Promise.all([

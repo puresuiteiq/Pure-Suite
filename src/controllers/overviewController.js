@@ -1,4 +1,5 @@
 import pool from '../config/db.js'
+import { suspendExpiredSubscriptions } from '../services/subscriptions.js'
 
 /**
  * Fallback plan prices (monthly IQD) used ONLY if the `plans` table hasn't been
@@ -67,6 +68,7 @@ function buildOrdersTrend(rows) {
 // GET /api/overview
 export async function getOverview(req, res, next) {
   try {
+    await suspendExpiredSubscriptions()
     const [
       [planCounts],
       [ordersToday],
@@ -174,6 +176,7 @@ export async function getOverview(req, res, next) {
  */
 export async function getRevenue(req, res, next) {
   try {
+    await suspendExpiredSubscriptions()
     const [[rows], planList] = await Promise.all([
       pool.query(`
         SELECT plan, COUNT(*) AS merchants

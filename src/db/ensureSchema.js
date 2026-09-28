@@ -28,6 +28,7 @@ const STEPS = [
   ['merchant_splash_media', ensureMerchantSplash],
   ['merchants.storefront_theme', ensureStorefrontTheme],
   ['merchants.map_url', ensureMerchantMapUrl],
+  ['merchant subscriptions', ensureMerchantSubscriptions],
   ['products.currency', ensureProductCurrency],
   ['daily order numbers', ensureDailyOrderNumbers],
   ['listing indexes', ensureListingIndexes],
@@ -63,6 +64,22 @@ function report(what, err) {
   console.error(
     `${TAG} ${what} — the API is starting anyway. ` + (described?.error ?? err?.message ?? err),
   )
+}
+
+/** merchants.subscription_*: admin-managed subscription cycle dates. */
+export async function ensureMerchantSubscriptions(conn) {
+  const columns = [
+    ['subscription_expires_at', 'DATE NULL'],
+    ['subscription_starts_at', 'DATE NULL'],
+  ]
+  for (const [column, definition] of columns) {
+    const [found] = await conn.query('SHOW COLUMNS FROM merchants LIKE ?', [column])
+    if (!found.length) {
+      await conn.query(`ALTER TABLE merchants ADD COLUMN ${column} ${definition}`)
+      console.log(`${TAG} added merchants.${column}`)
+    }
+  }
+  console.log(`${TAG} merchant subscriptions ready`)
 }
 
 /**

@@ -1,6 +1,7 @@
 import pool from '../config/db.js'
 
 const DEFAULT_SWEEP_INTERVAL_MS = 60 * 60 * 1000
+const SUBSCRIPTION_TIME_ZONE = process.env.SUBSCRIPTION_TIME_ZONE || 'Asia/Baghdad'
 
 let hasExpiryColumnPromise = null
 let sweepTimer = null
@@ -23,6 +24,17 @@ async function hasSubscriptionExpiryColumn() {
   return hasExpiryColumnPromise
 }
 
+export function subscriptionToday(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: SUBSCRIPTION_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now)
+  const get = (type) => parts.find((part) => part.type === type)?.value
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+
 export async function suspendExpiredSubscriptions({ merchantId } = {}) {
   if (!(await hasSubscriptionExpiryColumn())) return 0
 
@@ -38,9 +50,9 @@ export async function suspendExpiredSubscriptions({ merchantId } = {}) {
         SET status = 'suspended'
       WHERE status <> 'suspended'
         AND subscription_expires_at IS NOT NULL
-        AND subscription_expires_at < CURDATE()
+        AND subscription_expires_at < ?
         ${merchantFilter}`,
-    values,
+    [subscriptionToday(), ...values],
   )
   return Number(result.affectedRows ?? 0)
 }
