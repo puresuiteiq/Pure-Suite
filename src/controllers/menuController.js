@@ -13,6 +13,7 @@ import {
   normalizeFocus,
 } from '../utils/menuNormalize.js'
 import { imageVersion, sendImage } from '../utils/imageResponse.js'
+import { positionCase, reorderWithin } from '../utils/reorder.js'
 
 /**
  * All handlers derive the merchant from `req.merchantId` (set by requireAuth)
@@ -573,6 +574,87 @@ export async function deleteItem(req, res, next) {
       return res.status(404).json({ status: 'error', error: 'Item not found' })
     }
     res.json({ id: Number(req.params.id), deleted: true })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// Whether products.updated_at exists (it versions every product image URL).
+let productsUpdatedAtColumn
+async function hasProductsUpdatedAt() {
+  if (productsUpdatedAtColumn === undefined) {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS n FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'products' AND column_name = 'updated_at'`,
+    )
+    productsUpdatedAtColumn = rows[0].n > 0
+  }
+  return productsUpdatedAtColumn
+}
+
+const staleOrder = (res) =>
+  res.status(409).json({
+    status: 'error',
+    error: 'Your menu changed since this page loaded. Reload and try again.',
+  })
+
+// PATCH /api/merchant/menu/categories/order  { ids: [3, 1, 2] }
+/**
+ * The categories in a new order (drag and drop in the menu editor). `ids` is
+ * the order the merchant sees; see reorderWithin for how a partial list is
+ * applied. Every category is renumbered 0..n-1 in one statement, so an order
+ * is never half-saved.
+ */
+export async function reorderCategories(req, res, next) {
+  try {
+    const [rows] = await pool.query(
+      'SELECT id FROM categories WHERE merchant_id = ? ORDER BY position, id',
+      [req.merchantId],
+    )
+    const { order, error } = reorderWithin(rows.map((row) => row.id), req.body?.ids)
+    if (error) return staleOrder(res)
+    const position = positionCase(order)
+    await pool.query(
+      `UPDATE categories SET position = ${position.sql}
+       WHERE merchant_id = ? AND id IN (${order.map(() => '?').join(', ')})`,
+      [...position.values, req.merchantId, ...order],
+    )
+    res.json({ ids: order })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// PATCH /api/merchant/menu/categories/:id/items/order  { ids: [9, 7, 8] }
+/**
+ * One category's items in a new order. The editor loads items in pages, so
+ * `ids` may be only the loaded ones; they are reordered among themselves and
+ * the rest keep their places (reorderWithin).
+ *
+ * updated_at is pinned: it versions the product image URLs, and a reorder
+ * changes no picture — letting it move would make every customer re-download
+ * every photo in the category.
+ */
+export async function reorderItems(req, res, next) {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id FROM products WHERE merchant_id = ? AND category_id = ?
+       ORDER BY position, id`,
+      [req.merchantId, req.params.id],
+    )
+    if (!rows.length) {
+      return res.status(404).json({ status: 'error', error: 'Category not found' })
+    }
+    const { order, error } = reorderWithin(rows.map((row) => row.id), req.body?.ids)
+    if (error) return staleOrder(res)
+    const position = positionCase(order)
+    const pin = (await hasProductsUpdatedAt()) ? ', updated_at = updated_at' : ''
+    await pool.query(
+      `UPDATE products SET position = ${position.sql}${pin}
+       WHERE merchant_id = ? AND category_id = ? AND id IN (${order.map(() => '?').join(', ')})`,
+      [...position.values, req.merchantId, req.params.id, ...order],
+    )
+    res.json({ ids: order })
   } catch (err) {
     next(err)
   }

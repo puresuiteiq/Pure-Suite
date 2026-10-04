@@ -16,6 +16,8 @@ import {
   createItem,
   updateItem,
   deleteItem,
+  reorderCategories,
+  reorderItems,
 } from '../controllers/menuController.js'
 import {
   listMyBanners,
@@ -56,6 +58,9 @@ router.post('/change-password', changeMyPassword)
 // Menu
 router.get('/menu', getMyMenu)
 router.post('/menu/categories', createCategory)
+// Drag-and-drop order. /order before /:id, which would otherwise take "order" as an id.
+router.patch('/menu/categories/order', reorderCategories)
+router.patch('/menu/categories/:id/items/order', reorderItems)
 router.patch('/menu/categories/:id', updateCategory)
 router.delete('/menu/categories/:id', deleteCategory)
 router.get('/menu/items/:id', getItem)
