@@ -15,6 +15,7 @@ import {
 import { imageVersion, sendImage } from '../utils/imageResponse.js'
 import { positionCase, reorderWithin } from '../utils/reorder.js'
 import { productListColumns } from '../utils/productImageColumns.js'
+import { getProductColumnNames } from '../db/productColumns.js'
 
 /**
  * All handlers derive the merchant from `req.merchantId` (set by requireAuth)
@@ -120,18 +121,9 @@ async function hasCoverFocusColumn() {
 const merchantProductImageUrl = (productId, index, updatedAt) =>
   `/api/merchant/menu/items/${productId}/image/${index}?v=${imageVersion(updatedAt)}`
 
-let menuListColumns
+// Image blobs are never selected or measured — see utils/productImageColumns.js.
 async function listMenuProductColumns() {
-  if (menuListColumns === undefined) {
-    const [rows] = await pool.query(
-      `SELECT column_name AS name FROM information_schema.columns
-       WHERE table_schema = DATABASE() AND table_name = 'products'`,
-    )
-    const names = rows.map((row) => row.name)
-    // Image blobs are never selected or measured — see utils/productImageColumns.js.
-    menuListColumns = productListColumns(names, 'p')
-  }
-  return menuListColumns
+  return productListColumns(await getProductColumnNames(), 'p')
 }
 
 async function getMenuPage(merchantId, { limit, offset }) {

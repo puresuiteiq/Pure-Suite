@@ -1,6 +1,6 @@
 import 'dotenv/config'
 import app from './app.js'
-import { ensureSchema } from './db/ensureSchema.js'
+import { ensureSchema, ensureProductImageFlagsInBackground } from './db/ensureSchema.js'
 import { startSubscriptionExpirySweep } from './services/subscriptions.js'
 
 const PORT = Number(process.env.PORT) || 4000
@@ -19,4 +19,6 @@ startSubscriptionExpirySweep()
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Restaurant SaaS API listening on http://0.0.0.0:${PORT}`)
   console.log(`Health check: http://0.0.0.0:${PORT}/api/health`)
+  // Slow one-off table rebuild — after listen, so it never takes the API down.
+  ensureProductImageFlagsInBackground()
 })

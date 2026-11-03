@@ -1,6 +1,7 @@
 import pool from '../config/db.js'
 import { slugForMerchant } from '../utils/slug.js'
 import { describeDbError } from '../utils/dbErrors.js'
+import { resetProductColumnNames } from './productColumns.js'
 
 /**
  * Schema steps that run on every boot, before the server accepts requests.
@@ -33,7 +34,6 @@ const STEPS = [
   ['daily order numbers', ensureDailyOrderNumbers],
   ['listing indexes', ensureListingIndexes],
   ['products.cover_focus', ensureCoverFocus],
-  ['products image flags', ensureProductImageFlags],
   ['admin roles', ensureAdminRoles],
 ]
 
@@ -314,8 +314,11 @@ export async function ensureCoverFocus(conn) {
  * store). Computed once on write instead. No write path changes: every INSERT
  * and UPDATE names its columns, and MySQL fills these in itself.
  *
- * Adding a STORED column rebuilds the table once, on the first boot after
- * deploy. See utils/productImageColumns.js for the readers.
+ * Adding a STORED column rebuilds the table once (the photos are in it, so
+ * this can take minutes). That is why it is NOT in STEPS: run before listen,
+ * it kept the API offline (502) for the whole rebuild. It runs after listen
+ * instead — see ensureProductImageFlagsInBackground — and readers fall back to
+ * the old expressions until it is done. See utils/productImageColumns.js.
  */
 export async function ensureProductImageFlags(conn) {
   const [rows] = await conn.query('SHOW COLUMNS FROM products')
@@ -330,7 +333,15 @@ export async function ensureProductImageFlags(conn) {
     wanted.push('ADD COLUMN image_count INT AS (COALESCE(JSON_LENGTH(`images`), 0)) STORED')
   }
   if (wanted.length) {
-    await conn.query(`ALTER TABLE products ${wanted.join(', ')}`)
+    // An ALTER waiting for a table lock makes every later query on products
+    // queue behind it — the storefront would hang. Give up after 10 s instead
+    // and try again on the next boot.
+    await conn.query('SET SESSION lock_wait_timeout = 10')
+    // COPY + SHARED: the storefront can keep reading products during the
+    // rebuild; only writes to products wait until it finishes.
+    await conn.query(
+      `ALTER TABLE products ${wanted.join(', ')}, ALGORITHM=COPY, LOCK=SHARED`,
+    )
     console.log(`${TAG} added products image flags`)
   }
   console.log(`${TAG} product image flags ready`)
@@ -414,5 +425,23 @@ async function ensureSlugIndex(conn) {
       `${TAG} could not add the unique index on merchants.slug — ` +
         `two merchants share a slug. Fix the duplicates and restart. (${err.code ?? err.message})`,
     )
+  }
+}
+
+/**
+ * Runs ensureProductImageFlags without holding up startup: call it after the
+ * server is listening. When it finishes, the cached products column list is
+ * dropped so listings start using the new columns straight away.
+ */
+export async function ensureProductImageFlagsInBackground() {
+  let conn
+  try {
+    conn = await pool.getConnection()
+    await ensureProductImageFlags(conn)
+    resetProductColumnNames()
+  } catch (err) {
+    report('could not prepare products image flags', err)
+  } finally {
+    conn?.release()
   }
 }

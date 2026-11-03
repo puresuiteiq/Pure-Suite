@@ -7,6 +7,7 @@ import {
   hasPhotoCondition,
   productListColumns as buildProductListColumns,
 } from '../utils/productImageColumns.js'
+import { getProductColumnNames } from '../db/productColumns.js'
 import { BANNER_LIST_COLUMNS, bannersAvailable } from '../db/banners.js'
 import { linkTargetSets, mapBanner } from '../utils/banners.js'
 import { mapSplash } from '../utils/splash.js'
@@ -95,17 +96,7 @@ export async function resolveMerchant(param) {
  * them directly would turn an un-migrated install from "works" into
  * ER_BAD_FIELD_ERROR. Cached per process, like the other schema probes here.
  */
-let productColumnNamesCache = null
-async function productColumnNames() {
-  if (productColumnNamesCache === null) {
-    const [rows] = await pool.query(
-      `SELECT column_name AS name FROM information_schema.columns
-       WHERE table_schema = DATABASE() AND table_name = 'products'`,
-    )
-    productColumnNamesCache = rows.map((r) => r.name)
-  }
-  return productColumnNamesCache
-}
+const productColumnNames = getProductColumnNames
 
 // Neither image column is selected. The listing returns URLs, so all it needs
 // is whether a cover exists and how many gallery entries there are — read from

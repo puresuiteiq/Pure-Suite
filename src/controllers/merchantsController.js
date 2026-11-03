@@ -12,6 +12,7 @@ import { suspendExpiredSubscriptions, enforceMerchantSubscription } from '../ser
 import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
 import { canManageMerchant, isSuperAdmin, stripSubAdminFields } from '../utils/adminRoles.js'
 import { productListColumns } from '../utils/productImageColumns.js'
+import { getProductColumnNames } from '../db/productColumns.js'
 
 /** Human-typeable temporary password (URL-safe, ~12 chars). */
 function generateTempPassword() {
@@ -105,18 +106,9 @@ const adminProductImageUrl = (merchantId) => (productId, index, updatedAt) =>
   `/api/merchants/${encodeURIComponent(merchantId)}/products/${productId}/image/${index}` +
   `?v=${imageVersion(updatedAt)}`
 
-let detailProductColumns = null
+// Image blobs are never selected or measured — see utils/productImageColumns.js.
 async function listDetailProductColumns() {
-  if (detailProductColumns === null) {
-    const [rows] = await pool.query(
-      `SELECT column_name AS name FROM information_schema.columns
-       WHERE table_schema = DATABASE() AND table_name = 'products'`,
-    )
-    const names = rows.map((row) => row.name)
-    // Image blobs are never selected or measured — see utils/productImageColumns.js.
-    detailProductColumns = productListColumns(names, 'p')
-  }
-  return detailProductColumns
+  return productListColumns(await getProductColumnNames(), 'p')
 }
 
 function rowToDetailProduct(product, { imageUrl = null } = {}) {
