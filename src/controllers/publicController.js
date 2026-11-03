@@ -3,6 +3,10 @@ import { appUrl } from '../config/appUrl.js'
 import { resolveService } from '../utils/service.js'
 import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
 import { imageVersion, sendImage } from '../utils/imageResponse.js'
+import {
+  hasPhotoCondition,
+  productListColumns as buildProductListColumns,
+} from '../utils/productImageColumns.js'
 import { BANNER_LIST_COLUMNS, bannersAvailable } from '../db/banners.js'
 import { linkTargetSets, mapBanner } from '../utils/banners.js'
 import { mapSplash } from '../utils/splash.js'
@@ -91,29 +95,44 @@ export async function resolveMerchant(param) {
  * them directly would turn an un-migrated install from "works" into
  * ER_BAD_FIELD_ERROR. Cached per process, like the other schema probes here.
  */
-let productListColumns = null
-async function listProductColumns() {
-  if (productListColumns === null) {
+let productColumnNamesCache = null
+async function productColumnNames() {
+  if (productColumnNamesCache === null) {
     const [rows] = await pool.query(
       `SELECT column_name AS name FROM information_schema.columns
        WHERE table_schema = DATABASE() AND table_name = 'products'`,
     )
-    const names = rows.map((r) => r.name)
-    // Neither image column is selected. The listing returns URLs, so all it
-    // needs is whether a cover exists and how many gallery entries there are —
-    // both computed by the database, so the image bytes never cross the wire.
-    const usable = names.filter((name) => name !== 'images' && name !== 'image')
-    const computed = [
-      names.includes('image') ? 'CHAR_LENGTH(`image`) > 0 AS has_image' : '0 AS has_image',
-      names.includes('images')
-        ? 'COALESCE(JSON_LENGTH(`images`), 0) AS image_count'
-        : '0 AS image_count',
-    ]
-    productListColumns = usable.length
-      ? [...usable.map((n) => `\`${n}\``), ...computed].join(', ')
-      : '*'
+    productColumnNamesCache = rows.map((r) => r.name)
   }
-  return productListColumns
+  return productColumnNamesCache
+}
+
+// Neither image column is selected. The listing returns URLs, so all it needs
+// is whether a cover exists and how many gallery entries there are — read from
+// the stored flag columns, so the image bytes are never even read from disk
+// (utils/productImageColumns.js).
+async function listProductColumns() {
+  return buildProductListColumns(await productColumnNames())
+}
+
+/**
+ * Each category's cover: its first product (in menu order) that has a photo.
+ * Two correlated lookups on the (merchant_id, category_id, position, id) index;
+ * cheap only because the photo test reads the flag columns, not the blobs.
+ */
+async function categoryCoverColumns() {
+  const hasPhoto = hasPhotoCondition(await productColumnNames(), 'cp')
+  const lookup = (column) => `(
+              SELECT cp.${column}
+                FROM products cp
+               WHERE cp.merchant_id = c.merchant_id
+                 AND cp.category_id = c.id
+                 AND ${hasPhoto}
+               ORDER BY cp.position, cp.id
+               LIMIT 1
+            )`
+  return `${lookup('id')} AS cover_product_id,
+            ${lookup('updated_at')} AS cover_product_updated_at`
 }
 
 /**
@@ -300,24 +319,7 @@ async function listStorefrontBanners(merchantId, merchantParam, categories, prod
 async function getPublicMenuPage(merchantId, merchantParam, lang, { limit, offset }) {
   const [categoryRows] = await pool.query(
     `SELECT c.*, COUNT(p.id) AS product_count,
-            (
-              SELECT cp.id
-                FROM products cp
-               WHERE cp.merchant_id = c.merchant_id
-                 AND cp.category_id = c.id
-                 AND (CHAR_LENGTH(cp.image) > 0 OR COALESCE(JSON_LENGTH(cp.images), 0) > 0)
-               ORDER BY cp.position, cp.id
-               LIMIT 1
-            ) AS cover_product_id,
-            (
-              SELECT cp.updated_at
-                FROM products cp
-               WHERE cp.merchant_id = c.merchant_id
-                 AND cp.category_id = c.id
-                 AND (CHAR_LENGTH(cp.image) > 0 OR COALESCE(JSON_LENGTH(cp.images), 0) > 0)
-               ORDER BY cp.position, cp.id
-               LIMIT 1
-            ) AS cover_product_updated_at
+            ${await categoryCoverColumns()}
        FROM categories c
        LEFT JOIN products p ON p.category_id = c.id AND p.merchant_id = c.merchant_id
       WHERE c.merchant_id = ?
@@ -459,24 +461,7 @@ export async function getPublicRestaurant(req, res, next) {
     } else {
       const [loadedCategories] = await pool.query(
         `SELECT c.*,
-                (
-                  SELECT cp.id
-                    FROM products cp
-                   WHERE cp.merchant_id = c.merchant_id
-                     AND cp.category_id = c.id
-                     AND (CHAR_LENGTH(cp.image) > 0 OR COALESCE(JSON_LENGTH(cp.images), 0) > 0)
-                   ORDER BY cp.position, cp.id
-                   LIMIT 1
-                ) AS cover_product_id,
-                (
-                  SELECT cp.updated_at
-                    FROM products cp
-                   WHERE cp.merchant_id = c.merchant_id
-                     AND cp.category_id = c.id
-                     AND (CHAR_LENGTH(cp.image) > 0 OR COALESCE(JSON_LENGTH(cp.images), 0) > 0)
-                   ORDER BY cp.position, cp.id
-                   LIMIT 1
-                ) AS cover_product_updated_at
+                ${await categoryCoverColumns()}
            FROM categories c
           WHERE c.merchant_id = ?
           ORDER BY c.position, c.id`,

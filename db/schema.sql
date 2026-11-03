@@ -161,6 +161,10 @@ CREATE TABLE IF NOT EXISTS products (
   stock        INT             NULL,           -- NULL = not tracked; >=0 tracked; 0 = out of stock
   images       JSON            NULL,           -- gallery: array of data/CDN URLs; `image` stays the cover
   image        MEDIUMTEXT      NULL,           -- cover image (= images[0]); data URL or CDN URL
+  -- Computed by MySQL on write, so listings can tell a product has photos
+  -- without reading them (see src/utils/productImageColumns.js).
+  has_image    TINYINT(1) AS (COALESCE(CHAR_LENGTH(`image`), 0) > 0) STORED,
+  image_count  INT AS (COALESCE(JSON_LENGTH(`images`), 0)) STORED,
   -- Where the cover sits inside a storefront card: "x y" percentages the
   -- merchant dragged to. The photo itself is never cropped. NULL = card default.
   cover_focus  VARCHAR(16)     NULL,

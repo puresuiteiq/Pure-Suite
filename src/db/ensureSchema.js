@@ -33,6 +33,7 @@ const STEPS = [
   ['daily order numbers', ensureDailyOrderNumbers],
   ['listing indexes', ensureListingIndexes],
   ['products.cover_focus', ensureCoverFocus],
+  ['products image flags', ensureProductImageFlags],
   ['admin roles', ensureAdminRoles],
 ]
 
@@ -302,6 +303,37 @@ export async function ensureCoverFocus(conn) {
     console.log(`${TAG} added products.cover_focus`)
   }
   console.log(`${TAG} product cover framing ready`)
+}
+
+/**
+ * products.has_image / products.image_count — STORED generated columns, so a
+ * listing can tell whether a product has photos without reading them.
+ *
+ * Photos are data URLs in the row; CHAR_LENGTH(image) / JSON_LENGTH(images)
+ * made MySQL load every blob on every storefront view (20 s on a ~400-product
+ * store). Computed once on write instead. No write path changes: every INSERT
+ * and UPDATE names its columns, and MySQL fills these in itself.
+ *
+ * Adding a STORED column rebuilds the table once, on the first boot after
+ * deploy. See utils/productImageColumns.js for the readers.
+ */
+export async function ensureProductImageFlags(conn) {
+  const [rows] = await conn.query('SHOW COLUMNS FROM products')
+  const names = rows.map((row) => row.Field)
+  const wanted = []
+  if (names.includes('image') && !names.includes('has_image')) {
+    wanted.push(
+      'ADD COLUMN has_image TINYINT(1) AS (COALESCE(CHAR_LENGTH(`image`), 0) > 0) STORED',
+    )
+  }
+  if (names.includes('images') && !names.includes('image_count')) {
+    wanted.push('ADD COLUMN image_count INT AS (COALESCE(JSON_LENGTH(`images`), 0)) STORED')
+  }
+  if (wanted.length) {
+    await conn.query(`ALTER TABLE products ${wanted.join(', ')}`)
+    console.log(`${TAG} added products image flags`)
+  }
+  console.log(`${TAG} product image flags ready`)
 }
 
 /**

@@ -14,6 +14,7 @@ import {
 } from '../utils/menuNormalize.js'
 import { imageVersion, sendImage } from '../utils/imageResponse.js'
 import { positionCase, reorderWithin } from '../utils/reorder.js'
+import { productListColumns } from '../utils/productImageColumns.js'
 
 /**
  * All handlers derive the merchant from `req.merchantId` (set by requireAuth)
@@ -127,14 +128,8 @@ async function listMenuProductColumns() {
        WHERE table_schema = DATABASE() AND table_name = 'products'`,
     )
     const names = rows.map((row) => row.name)
-    const usable = names.filter((name) => name !== 'images' && name !== 'image')
-    const computed = [
-      names.includes('image') ? 'CHAR_LENGTH(p.`image`) > 0 AS has_image' : '0 AS has_image',
-      names.includes('images')
-        ? 'COALESCE(JSON_LENGTH(p.`images`), 0) AS image_count'
-        : '0 AS image_count',
-    ]
-    menuListColumns = [...usable.map((name) => `p.\`${name}\``), ...computed].join(', ')
+    // Image blobs are never selected or measured — see utils/productImageColumns.js.
+    menuListColumns = productListColumns(names, 'p')
   }
   return menuListColumns
 }

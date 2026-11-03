@@ -11,6 +11,7 @@ import { imageVersion, sendImage } from '../utils/imageResponse.js'
 import { suspendExpiredSubscriptions, enforceMerchantSubscription } from '../services/subscriptions.js'
 import { ERROR_CODES, errorBody } from '../utils/errorCodes.js'
 import { canManageMerchant, isSuperAdmin, stripSubAdminFields } from '../utils/adminRoles.js'
+import { productListColumns } from '../utils/productImageColumns.js'
 
 /** Human-typeable temporary password (URL-safe, ~12 chars). */
 function generateTempPassword() {
@@ -112,14 +113,8 @@ async function listDetailProductColumns() {
        WHERE table_schema = DATABASE() AND table_name = 'products'`,
     )
     const names = rows.map((row) => row.name)
-    const usable = names.filter((name) => name !== 'images' && name !== 'image')
-    const computed = [
-      names.includes('image') ? 'CHAR_LENGTH(p.`image`) > 0 AS has_image' : '0 AS has_image',
-      names.includes('images')
-        ? 'COALESCE(JSON_LENGTH(p.`images`), 0) AS image_count'
-        : '0 AS image_count',
-    ]
-    detailProductColumns = [...usable.map((name) => `p.\`${name}\``), ...computed].join(', ')
+    // Image blobs are never selected or measured — see utils/productImageColumns.js.
+    detailProductColumns = productListColumns(names, 'p')
   }
   return detailProductColumns
 }
